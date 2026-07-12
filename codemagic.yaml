@@ -1,0 +1,92 @@
+# =============================================================================
+# NOVIGO monorepo — Builds iOS (App Store / TestFlight) via Codemagic
+# -----------------------------------------------------------------------------
+# Codemagic ne lit QUE ce fichier (racine du repo). Un workflow par app, chacun
+# ciblant son sous-dossier via `working_directory`.
+#
+# Prérequis (UI Codemagic, une seule fois) :
+#   - Intégration App Store Connect API key nommée « NOVIGO_ASC_API_KEY »
+#   - Bundle ids enregistrés sur le portail Apple : com.novigo.client/driver/merchant
+#   - Groupe d'environnement « novigo » : APP_STORE_APPLE_ID + NOVIGO_API
+#     (NOVIGO_API = URL HTTPS publique STABLE du Gateway ; NOVIGO_LIVE=true est forcé au build)
+# =============================================================================
+
+definitions:
+  ios_env: &ios_env
+    groups:
+      - novigo
+    flutter: stable
+    xcode: latest
+    cocoapods: default
+  ios_scripts: &ios_scripts
+    - name: Signature (profils App Store)
+      script: xcode-project use-profiles
+    - name: Packages Flutter
+      script: flutter pub get
+    - name: Pods
+      script: find . -name "Podfile" -execdir pod install \;
+    - name: Build IPA
+      script: |
+        flutter build ipa --release \
+          --build-number=$BUILD_NUMBER \
+          --dart-define=NOVIGO_LIVE=true \
+          --dart-define=NOVIGO_API="$NOVIGO_API" \
+          --export-options-plist=/Users/builder/export_options.plist
+  ios_artifacts: &ios_artifacts
+    - build/ios/ipa/*.ipa
+    - "**/build/ios/ipa/*.ipa"
+    - /tmp/xcodebuild_logs/*.log
+  ios_publishing: &ios_publishing
+    app_store_connect:
+      auth: integration
+      submit_to_testflight: true
+      submit_to_app_store: false
+
+workflows:
+  client-ios:
+    name: NOVIGO Client — iOS App Store
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    working_directory: malipro_client
+    integrations:
+      app_store_connect: NOVIGO_ASC_API_KEY
+    environment:
+      <<: *ios_env
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.novigo.client
+    scripts: *ios_scripts
+    artifacts: *ios_artifacts
+    publishing: *ios_publishing
+
+  driver-ios:
+    name: NOVIGO Livreur — iOS App Store
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    working_directory: malipro_driver
+    integrations:
+      app_store_connect: NOVIGO_ASC_API_KEY
+    environment:
+      <<: *ios_env
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.novigo.driver
+    scripts: *ios_scripts
+    artifacts: *ios_artifacts
+    publishing: *ios_publishing
+
+  merchant-ios:
+    name: NOVIGO Marchand — iOS App Store
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    working_directory: malipro_merchant
+    integrations:
+      app_store_connect: NOVIGO_ASC_API_KEY
+    environment:
+      <<: *ios_env
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.novigo.merchant
+    scripts: *ios_scripts
+    artifacts: *ios_artifacts
+    publishing: *ios_publishing
