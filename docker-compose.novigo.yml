@@ -1,0 +1,126 @@
+# ============================================================================
+# NOVIGO — STACK UNIFIÉE (ADR-1..7)
+# Une seule URL publique (Gateway :8088) ; deux backends spécialisés ;
+# UNE base logique (Postgres, schémas ops/finance) ; UN Redis ; UN RabbitMQ ; UN MinIO.
+#
+#   docker compose -f docker-compose.novigo.yml up --build
+#
+# Après le 1er démarrage, initialiser les données (voir README / Makefile de chaque backend) :
+#   - Nest  : prisma migrate deploy + seed  (schéma ops)
+#   - Spring: Flyway s'applique au boot      (schéma finance)
+# ============================================================================
+name: novigo-unified
+
+x-jwt: &jwt
+  # SECRET PARTAGÉ (ADR-6) : identique pour Nest ET Spring => tokens interopérables.
+  JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-novigo-shared-access-secret-change-me-32bytes-minimum-length-ok}
+  JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-novigo-shared-refresh-secret-change-me-32bytes-minimum-length-ok}
+
+services:
+  # ---------------------------------------------------------------- INFRA ---
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: novigo
+      POSTGRES_PASSWORD: novigo
+      POSTGRES_DB: novigo
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db-init:/docker-entrypoint-initdb.d:ro    # crée schémas ops + finance
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U novigo"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  redis:
+    image: redis:7-alpine
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: novigo
+      RABBITMQ_DEFAULT_PASS: novigo
+    ports: ["15672:15672"]     # console d'admin RabbitMQ (debug)
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: novigo
+      MINIO_ROOT_PASSWORD: novigo-secret
+    volumes: [miniodata:/data]
+
+  # ----------------------------------------------------- BACKEND NestJS -----
+  # Schéma « ops » : identité/OTP, commandes, livraison, tracking, chat, notifs, Socket.IO
+  nest-api:
+    build: ./malipro/backend
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_started }
+      rabbitmq: { condition: service_healthy }
+    environment:
+      <<: *jwt
+      DATABASE_URL: postgresql://novigo:novigo@db:5432/novigo?schema=ops
+      REDIS_URL: redis://redis:6379
+      RABBITMQ_URL: amqp://novigo:novigo@rabbitmq:5672        # bus novigo.events (P0-4)
+      PORT: "8080"
+      CORS_ORIGIN: http://localhost:5173,http://localhost:8088
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: "9000"
+      MINIO_ACCESS_KEY: novigo
+      MINIO_SECRET_KEY: novigo-secret
+      MINIO_BUCKET: novigo
+      MINIO_PUBLIC_URL: http://localhost:9000
+      PUSH_PROVIDER: ${PUSH_PROVIDER:-console}
+    expose: ["8080"]           # interne au réseau : joignable UNIQUEMENT via le Gateway
+
+  # ----------------------------------------------------- BACKEND Spring -----
+  # Schéma « finance » : wallet, paiements, facturation, compta, promos, coupons, fidélité, admin
+  spring-api:
+    build: ./malipro/backend-spring
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_started }
+      rabbitmq: { condition: service_started }
+    environment:
+      <<: *jwt
+      SPRING_PROFILES_ACTIVE: prod
+      DB_URL: jdbc:postgresql://db:5432/novigo?currentSchema=finance
+      DB_USER: novigo
+      DB_PASSWORD: novigo
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: "5672"
+      RABBITMQ_USER: novigo
+      RABBITMQ_PASSWORD: novigo
+      CORS_ORIGINS: http://localhost:5173,http://localhost:8088
+    expose: ["8081"]           # interne au réseau : joignable UNIQUEMENT via le Gateway
+
+  # ------------------------------------------------ NOVIGO API GATEWAY ------
+  gateway:
+    image: nginx:1.27-alpine
+    depends_on: [nest-api, spring-api]
+    volumes:
+      - ./gateway/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports: ["8088:80"]         # <<< SEULE URL PUBLIQUE : http://localhost:8088/api/v1
+
+  # -------------------------------------------- WEB (référence, mode live) --
+  web:
+    build:
+      context: ./malipro/client-web
+      args:
+        NEXT_PUBLIC_API_MODE: live
+        NEXT_PUBLIC_API_BASE_URL: http://localhost:8088/api/v1   # via le Gateway
+    depends_on: [gateway]
+    ports: ["5174:3000"]       # http://localhost:5174 (5173 souvent pris par next dev)
+
+volumes:
+  pgdata:
+  miniodata:

@@ -1,0 +1,30 @@
+groups:
+  - name: novigo-api
+    rules:
+      - alert: ApiTargetDown
+        expr: up{job="novigo-api"} == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: "API NOVIGO injoignable"
+          description: "La cible {{ $labels.instance }} ne répond plus depuis 1 min."
+
+      - alert: HighErrorRate
+        expr: |
+          sum(rate(novigo_http_requests_total{status=~"5.."}[5m]))
+            / sum(rate(novigo_http_requests_total[5m])) > 0.05
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Taux d'erreurs 5xx élevé"
+          description: "Plus de 5% des requêtes échouent (5xx) sur 5 min."
+
+      - alert: HighLatencyP95
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(novigo_http_request_duration_seconds_bucket[5m])) by (le)) > 1
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Latence p95 dégradée"
+          description: "La latence p95 dépasse 1s sur 5 min."

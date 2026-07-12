@@ -1,0 +1,75 @@
+# NOVIGO — stack COMPLET : infra + API Spring + frontend Next.js (mode live).
+# Le frontend appelle l'API depuis le NAVIGATEUR → NEXT_PUBLIC_API_BASE_URL doit pointer
+# sur l'hôte mappé (localhost:8081), et CORS_ORIGINS doit autoriser l'origine du web.
+#
+# Lancer :   docker compose -f docker-compose.stack.yml up -d --build
+# Frontend : http://localhost:3000     API : http://localhost:8081     Swagger : :8081/swagger-ui.html
+name: novigo-stack
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: novigo
+      POSTGRES_PASSWORD: novigo
+      POSTGRES_DB: novigo
+    ports: ["5433:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U novigo"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6380:6379"]
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: novigo
+      RABBITMQ_DEFAULT_PASS: novigo
+    ports: ["5672:5672", "15672:15672"]
+
+  api:
+    build: .
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_started }
+      rabbitmq: { condition: service_started }
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      DB_URL: jdbc:postgresql://db:5432/novigo
+      DB_USER: novigo
+      DB_PASSWORD: novigo
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: "5672"
+      RABBITMQ_USER: novigo
+      RABBITMQ_PASSWORD: novigo
+      # Autorise l'origine du frontend conteneurisé (et le dev local :5173).
+      CORS_ORIGINS: http://localhost:3000,http://localhost:5173
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-dev-access-secret-change-me-32bytes-minimum-length-ok}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-dev-refresh-secret-change-me-32bytes-minimum-length-ok}
+    ports: ["8081:8081"]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8081/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  web:
+    build:
+      context: ../client-web
+      args:
+        # URL appelée par le navigateur du client → hôte mappé, pas le nom de service.
+        NEXT_PUBLIC_API_MODE: live
+        NEXT_PUBLIC_API_BASE_URL: http://localhost:8081/api/v1
+    depends_on:
+      api: { condition: service_started }
+    ports: ["3000:3000"]
+
+volumes:
+  pgdata:

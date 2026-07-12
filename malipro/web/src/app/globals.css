@@ -1,0 +1,88 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * NOVIGO — jetons de design de la console admin.
+ * Les couleurs sont des triplets de canaux RGB (space-separated) afin que les
+ * utilitaires d'opacité Tailwind fonctionnent : `rgb(var(--brand) / <alpha-value>)`.
+ * Le mode sombre s'active automatiquement (préférence système) OU explicitement
+ * via la classe `.dark` sur <html> (bascule utilisateur). `.light` force le clair.
+ */
+:root {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", "JetBrains Mono", Menlo,
+    Consolas, monospace;
+
+  /* Marque officielle NOVIGO — indigo/violet électrique */
+  --brand: 91 75 225; /* #5B4BE1 indigo */
+  --brand-dark: 63 50 176; /* #3F32B0 violet profond */
+  --gold: 255 192 67; /* #FFC043 accent ambré */
+  --gold-dark: 245 168 40; /* #F5A828 */
+
+  /* Fonds & texte (clair) */
+  --paper: 247 248 252; /* #F7F8FC fond */
+  --surface: 255 255 255; /* cartes / barres */
+  --ink: 30 41 59; /* #1E293B texte */
+  --muted: 100 116 139; /* #64748B */
+  --line: 226 232 240; /* #E2E8F0 bordures */
+
+  /* Chrome sombre permanent (sidebar, écran de connexion) — NE bascule PAS. */
+  --shell: 15 23 42; /* #0F172A slate profond */
+
+  /* Sémantiques */
+  --success: 34 197 94; /* #22C55E */
+  --error: 239 68 68; /* #EF4444 */
+  --info: 59 130 246; /* #3B82F6 */
+  --warning: 245 158 11; /* #F59E0B */
+
+  color-scheme: light;
+}
+
+/* Mode sombre — préférence système (sauf .light explicite) */
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) {
+    --brand: 124 109 240; /* #7C6DF0 indigo clair sur fond sombre */
+    --paper: 15 23 42; /* #0F172A */
+    --surface: 30 41 59; /* #1E293B */
+    --ink: 241 245 249; /* #F1F5F9 */
+    --muted: 148 163 184; /* #94A3B8 */
+    --line: 51 65 85; /* #334155 */
+    color-scheme: dark;
+  }
+}
+
+/* Mode sombre — bascule explicite */
+.dark {
+  --brand: 124 109 240;
+  --paper: 15 23 42;
+  --surface: 30 41 59;
+  --ink: 241 245 249;
+  --muted: 148 163 184;
+  --line: 51 65 85;
+  color-scheme: dark;
+}
+
+html,
+body {
+  padding: 0;
+  margin: 0;
+}
+
+body {
+  font-family: var(--font-sans);
+  background: rgb(var(--paper));
+  color: rgb(var(--ink));
+  -webkit-font-smoothing: antialiased;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}

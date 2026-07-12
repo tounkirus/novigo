@@ -1,0 +1,143 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * NOVIGO — Jetons de thème (Super App premium, esprit MALIPRO).
+ * Canaux RGB (sans rgb()) pour composer avec l'opacité Tailwind.
+ * Marque : rouge accent #E53935, rouge clair #FF5A5F, dégradé profond #C62828.
+ * Le sombre est la référence premium ; le clair est corrigé WCAG (contraste AA).
+ */
+:root {
+  /* ---- MODE CLAIR (corrigé WCAG AA — audit contraste) ---- */
+  --brand: 229 57 53; /* #E53935 rouge accent */
+  --brand-dark: 198 40 40; /* #C62828 dégradé profond */
+  --brand-light: 255 90 95; /* #FF5A5F rouge clair */
+  --gold: 245 168 40; /* fond ambre (texte foncé dessus) */
+  --gold-dark: 161 98 7; /* #A16207 texte ambre lisible AA sur blanc/soft */
+
+  --ink: 17 24 39; /* #111827 titres presque noirs (~16:1) */
+  --muted: 75 85 99; /* #4B5563 texte secondaire gris foncé (~7:1 sur blanc) */
+
+  --paper: 255 255 255;
+  --surface: 255 255 255; /* cartes */
+  --shell: 246 247 250; /* fond de page */
+  --line: 229 231 235; /* #E5E7EB bordures de cartes (légères) */
+  --gray: 243 244 246; /* #F3F4F6 remplissage neutre clair */
+  --shadow: 17 24 39; /* ombres portées discrètes (sombres) */
+
+  --success: 21 128 61; /* #15803D vert AA sur blanc/soft */
+  --error: 185 28 28; /* #B91C1C rouge AA */
+  --info: 29 78 216; /* #1D4ED8 bleu AA */
+  --warning: 180 83 9; /* #B45309 orange AA */
+  --violet: 109 40 217; /* #6D28D9 violet AA */
+
+  --ring: var(--brand);
+}
+
+.dark {
+  /* ---- MODE SOMBRE (référence premium — palette officielle) ---- */
+  --brand: 229 57 53; /* #E53935 rouge accent */
+  --brand-dark: 198 40 40; /* #C62828 dégradé profond */
+  --brand-light: 255 90 95; /* #FF5A5F rouge clair */
+  --gold: 255 192 67;
+  --gold-dark: 245 168 40;
+
+  --ink: 255 255 255; /* #FFFFFF texte principal */
+  --muted: 184 189 201; /* #B8BDC9 texte secondaire */
+
+  --paper: 23 26 34; /* #171A22 fond secondaire */
+  --surface: 28 32 42; /* #1C202A cartes */
+  --shell: 15 17 23; /* #0F1117 fond principal */
+  --line: 49 55 67; /* #313743 séparateurs */
+  --gray: 46 52 64; /* #2E3440 */
+  --shadow: 0 0 0; /* ombres portées noires (profondeur sur fond sombre) */
+
+  --success: 46 204 113; /* #2ECC71 */
+  --error: 255 90 95; /* #FF5A5F */
+  --info: 33 150 243; /* #2196F3 */
+  --warning: 255 152 0; /* #FF9800 orange */
+  --violet: 124 77 255; /* #7C4DFF */
+
+  --ring: var(--brand);
+}
+
+* {
+  border-color: rgb(var(--line));
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  background-color: rgb(var(--shell));
+  color: rgb(var(--ink));
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Barre de défilement discrète */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--muted) / 0.35);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--muted) / 0.55);
+  background-clip: content-box;
+}
+
+/* Masquer la scrollbar (carrousels horizontaux) */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Effet verre premium pour headers collants */
+.glass {
+  background: rgb(var(--surface) / 0.72);
+  backdrop-filter: saturate(180%) blur(14px);
+  -webkit-backdrop-filter: saturate(180%) blur(14px);
+}
+
+/* Dégradé de marque réutilisable */
+.brand-gradient {
+  background-image: linear-gradient(135deg, rgb(var(--brand)) 0%, rgb(var(--brand-dark)) 100%);
+}
+
+/* Dégradé premium (surface volontairement sombre dans les 2 thèmes — hero Premium, cartes VIP) */
+.premium-gradient {
+  background-image: linear-gradient(135deg, #12141c 0%, #1c202a 45%, rgb(var(--brand-dark)) 100%);
+}
+
+/* Anneau de focus clavier standard — réutilisable sur tout élément interactif custom */
+@layer components {
+  .focus-ring {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-shell;
+  }
+}
+
+.text-balance {
+  text-wrap: balance;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

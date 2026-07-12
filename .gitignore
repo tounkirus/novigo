@@ -1,0 +1,77 @@
+# ============================================================================
+# NOVIGO monorepo — .gitignore
+# 4 apps Flutter (client/driver/merchant/artisan) + backends Nest & Spring +
+# gateway/db-init/store/tool. Exclut generated, dépendances, artefacts, secrets.
+# ============================================================================
+
+# ---- Secrets / signature (NE JAMAIS committer) ----
+novigo-keystore/
+**/*.jks
+**/*.keystore
+**/*.p12
+**/*.mobileprovision
+**/key.properties
+**/*.env
+.env
+.env.*
+**/google-services.json
+**/GoogleService-Info.plist
+**/AuthKey_*.p8
+
+# ---- Artefacts de build ----
+apk/
+**/*.apk
+**/*.aab
+**/*.ipa
+
+# ---- Flutter / Dart (4 apps) ----
+**/.dart_tool/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/.packages
+**/.pub-cache/
+**/.pub/
+**/build/
+**/pubspec.lock
+**/*.iml
+**/.idea/
+**/.vscode/
+
+# Flutter — Android généré
+**/android/.gradle/
+**/android/captures/
+**/android/local.properties
+**/android/**/GeneratedPluginRegistrant.java
+**/android/key.properties
+
+# Flutter — iOS généré (on garde Runner.xcodeproj + Info.plist ; on exclut le généré)
+**/ios/Pods/
+**/ios/.symlinks/
+**/ios/Flutter/Flutter.framework
+**/ios/Flutter/Flutter.podspec
+**/ios/Flutter/Generated.xcconfig
+**/ios/Flutter/flutter_export_environment.sh
+**/ios/Flutter/ephemeral/
+**/ios/ServiceDefinitions.json
+**/ios/Runner/GeneratedPluginRegistrant.*
+**/Podfile.lock
+**/.DS_Store
+
+# ---- Node / NestJS / Next.js (backend + client-web) ----
+**/node_modules/
+**/dist/
+**/.next/
+**/coverage/
+**/npm-debug.log*
+**/yarn-error.log*
+
+# ---- Java / Spring / Gradle ----
+**/target/
+**/.gradle/
+**/gradle-app.setting
+**/bin/
+
+# ---- Divers ----
+**/*.log
+**/.terraform/
+Thumbs.db

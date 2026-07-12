@@ -1,0 +1,3959 @@
+openapi: 3.1.0
+info:
+  title: NOVIGO API
+  version: 1.0.0
+  summary: Super App du Mali — livraison, marketplace, artisans, wallet et paiements Mobile Money.
+  description: |
+    # NOVIGO API
+
+    API REST versionnée (`/api/v1`) de la super app **NOVIGO** : livraison à la demande,
+    repas, pharmacies, supermarchés, artisans, courses express, marketplace, wallet et
+    paiements Mobile Money (Orange Money, Wave).
+
+    ## Authentification
+    - **JWT Bearer** (`bearerAuth`) : access token courte durée (15 min) sur toutes les routes protégées.
+    - **Refresh Token** (`/auth/refresh-token`) : renouvellement de l'access token (30 jours).
+    - **OTP SMS** : flux d'inscription/connexion en deux temps (`/auth/register` → `/auth/verify-otp`).
+    - **API Keys internes** (`apiKeyAuth`, header `X-Api-Key`) : communication service-à-service.
+
+    ## RBAC
+    Chaque opération porte l'extension `x-required-roles`. Rôles : `CUSTOMER`, `DRIVER`,
+    `ARTISAN`, `MERCHANT`, `ADMIN`, `SUPER_ADMIN`, `SUPPORT_AGENT`.
+
+    ## Pagination, tri, filtres
+    Les collections acceptent `page`, `limit`, `sort` (ex. `-createdAt`), `search` et des
+    filtres spécifiques. Les réponses paginées suivent le schéma `PaginatedResponse` (enveloppe
+    `data` + `meta`).
+
+    ## Rate limiting
+    Réponses porteuses des en-têtes `X-RateLimit-Limit`, `X-RateLimit-Remaining`,
+    `X-RateLimit-Reset`. Le dépassement renvoie `429` avec `Retry-After`.
+
+    ## Temps réel (WebSocket)
+    Le canal temps réel est documenté dans l'extension racine `x-websocket` (namespace,
+    événements de tracking livreur, chat, notifications, géolocalisation). Une spécification
+    **AsyncAPI** compagnon peut être générée pour ces canaux.
+
+    ## Enveloppes de réponse
+    - `SuccessResponse` — succès simple.
+    - `PaginatedResponse` — collections paginées.
+    - `ErrorResponse` — erreurs métier/HTTP.
+    - `ValidationErrorResponse` — erreurs de validation (422) champ par champ.
+  contact:
+    name: Équipe Plateforme NOVIGO
+    email: api@novigo.ml
+    url: https://developers.novigo.ml
+  license:
+    name: Propriétaire — NOVIGO
+    url: https://novigo.ml/legal
+  x-api-owner: NOVIGO Platform Engineering
+
+servers:
+  - url: https://api.novigo.ml/api/v1
+    description: Production
+  - url: https://staging-api.novigo.ml/api/v1
+    description: Staging
+  - url: http://localhost:8080/api/v1
+    description: Développement local
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Auth
+    description: Inscription, OTP, connexion, tokens, mots de passe.
+  - name: Users
+    description: Profil, photo, documents, adresses, favoris.
+  - name: Customers
+    description: Espace client — tableau de bord, commandes, paiements, wallet, fidélité.
+  - name: Drivers
+    description: Livreurs — inscription, validation, disponibilité, livraisons, gains, retraits.
+  - name: Artisans
+    description: Artisans — profil, services, devis, agenda, gains.
+  - name: Merchants
+    description: Commerçants — boutiques, produits, stock, promotions, rapports.
+  - name: Orders
+    description: Commandes — création, suivi, historique, annulation, notation.
+  - name: Deliveries
+    description: Livraisons — acceptation, refus, démarrage, complétion, incidents.
+  - name: Payments
+    description: Paiements — Orange Money, Wave, wallet, remboursements, réconciliation.
+  - name: Wallet
+    description: Portefeuille — solde, dépôt, retrait, transfert, transactions.
+  - name: Chat
+    description: Messagerie — conversations, messages, pièces jointes.
+  - name: Notifications
+    description: Push, SMS, email et préférences.
+  - name: Reviews
+    description: Avis — notes, commentaires, signalements.
+  - name: Promotions
+    description: Coupons, parrainage, campagnes.
+  - name: Support
+    description: Tickets, litiges, réclamations, escalades.
+  - name: Analytics
+    description: KPIs, dashboards, rapports, exports.
+  - name: Admin
+    description: Administration — utilisateurs, commandes, paiements, commissions, réglages, audit.
+
+x-websocket:
+  namespace: /realtime
+  transport: socket.io
+  auth: JWT via handshake `auth.token`
+  events:
+    - channel: order.tracking
+      description: Position et statut de la commande en temps réel.
+      payload: OrderTrackingEvent
+    - channel: driver.location
+      description: Coordonnées GPS du livreur (throttle 3 s).
+      payload: GeoPoint
+    - channel: chat.message
+      description: Nouveau message dans une conversation.
+      payload: Message
+    - channel: chat.typing
+      description: Indicateur de saisie.
+      payload: TypingEvent
+    - channel: notification.push
+      description: Notification poussée à l'utilisateur.
+      payload: Notification
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: "Access token JWT. En-tête `Authorization: Bearer <token>`."
+    refreshToken:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Refresh token JWT présenté uniquement sur `/auth/refresh-token`.
+    apiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-Api-Key
+      description: Clé d'API interne pour la communication service-à-service.
+
+  parameters:
+    PageParam:
+      name: page
+      in: query
+      required: false
+      description: Numéro de page (1-indexé).
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    LimitParam:
+      name: limit
+      in: query
+      required: false
+      description: Taille de page.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    SortParam:
+      name: sort
+      in: query
+      required: false
+      description: Champ de tri. Préfixe `-` pour l'ordre décroissant (ex. `-createdAt`).
+      schema:
+        type: string
+        examples: ["-createdAt"]
+    SearchParam:
+      name: search
+      in: query
+      required: false
+      description: Recherche plein-texte.
+      schema:
+        type: string
+    StatusFilterParam:
+      name: status
+      in: query
+      required: false
+      description: Filtre par statut.
+      schema:
+        type: string
+    DateFromParam:
+      name: dateFrom
+      in: query
+      required: false
+      schema:
+        type: string
+        format: date-time
+    DateToParam:
+      name: dateTo
+      in: query
+      required: false
+      schema:
+        type: string
+        format: date-time
+
+  headers:
+    X-RateLimit-Limit:
+      description: Nombre maximal de requêtes autorisées sur la fenêtre courante.
+      schema:
+        type: integer
+    X-RateLimit-Remaining:
+      description: Requêtes restantes sur la fenêtre courante.
+      schema:
+        type: integer
+    X-RateLimit-Reset:
+      description: Timestamp Unix de réinitialisation de la fenêtre.
+      schema:
+        type: integer
+    Retry-After:
+      description: Secondes avant de pouvoir réessayer.
+      schema:
+        type: integer
+
+  responses:
+    BadRequest:
+      description: Requête invalide.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error:
+              code: BAD_REQUEST
+              message: Requête invalide.
+              status: 400
+    Unauthorized:
+      description: Authentification requise ou token invalide.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error:
+              code: UNAUTHORIZED
+              message: Token manquant ou expiré.
+              status: 401
+    Forbidden:
+      description: Droits insuffisants (RBAC).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error:
+              code: FORBIDDEN
+              message: Accès refusé pour ce rôle.
+              status: 403
+    NotFound:
+      description: Ressource introuvable.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error:
+              code: NOT_FOUND
+              message: Ressource introuvable.
+              status: 404
+    Conflict:
+      description: Conflit d'état (doublon, transition invalide).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error:
+              code: CONFLICT
+              message: La ressource existe déjà ou l'état est incompatible.
+              status: 409
+    UnprocessableEntity:
+      description: Erreur de validation.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationErrorResponse'
+          example:
+            success: false
+            error:
+              code: VALIDATION_ERROR
+              message: Certains champs sont invalides.
+              status: 422
+              fields:
+                - field: phone
+                  message: Numéro de téléphone malien invalide.
+    TooManyRequests:
+      description: Limite de débit dépassée.
+      headers:
+        X-RateLimit-Limit:
+          $ref: '#/components/headers/X-RateLimit-Limit'
+        X-RateLimit-Remaining:
+          $ref: '#/components/headers/X-RateLimit-Remaining'
+        X-RateLimit-Reset:
+          $ref: '#/components/headers/X-RateLimit-Reset'
+        Retry-After:
+          $ref: '#/components/headers/Retry-After'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error:
+              code: RATE_LIMITED
+              message: Trop de requêtes. Réessayez plus tard.
+              status: 429
+    InternalError:
+      description: Erreur serveur.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error:
+              code: INTERNAL_ERROR
+              message: Une erreur interne est survenue.
+              status: 500
+
+  schemas:
+    # ---------- Enveloppes ----------
+    SuccessResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success:
+          type: boolean
+          const: true
+        data:
+          description: Charge utile.
+        message:
+          type: [string, "null"]
+    PaginationMeta:
+      type: object
+      required: [page, limit, total, totalPages]
+      properties:
+        page:
+          type: integer
+          examples: [1]
+        limit:
+          type: integer
+          examples: [20]
+        total:
+          type: integer
+          examples: [137]
+        totalPages:
+          type: integer
+          examples: [7]
+        hasNext:
+          type: boolean
+        hasPrev:
+          type: boolean
+    PaginatedResponse:
+      type: object
+      required: [success, data, meta]
+      properties:
+        success:
+          type: boolean
+          const: true
+        data:
+          type: array
+          items: {}
+        meta:
+          $ref: '#/components/schemas/PaginationMeta'
+    ErrorResponse:
+      type: object
+      required: [success, error]
+      properties:
+        success:
+          type: boolean
+          const: false
+        error:
+          type: object
+          required: [code, message, status]
+          properties:
+            code:
+              type: string
+              examples: ["NOT_FOUND"]
+            message:
+              type: string
+            status:
+              type: integer
+            traceId:
+              type: [string, "null"]
+    ValidationErrorResponse:
+      type: object
+      required: [success, error]
+      properties:
+        success:
+          type: boolean
+          const: false
+        error:
+          type: object
+          required: [code, message, status, fields]
+          properties:
+            code:
+              type: string
+              const: VALIDATION_ERROR
+            message:
+              type: string
+            status:
+              type: integer
+              const: 422
+            fields:
+              type: array
+              items:
+                type: object
+                required: [field, message]
+                properties:
+                  field:
+                    type: string
+                  message:
+                    type: string
+
+    # ---------- Primitifs ----------
+    GeoPoint:
+      type: object
+      required: [lat, lng]
+      properties:
+        lat:
+          type: number
+          format: double
+          examples: [12.6392]
+        lng:
+          type: number
+          format: double
+          examples: [-8.0029]
+    Money:
+      type: object
+      required: [amount, currency]
+      properties:
+        amount:
+          type: integer
+          description: Montant en unité mineure (FCFA, sans décimale).
+          examples: [2500]
+        currency:
+          type: string
+          const: XOF
+
+    # ---------- Enums ----------
+    Role:
+      type: string
+      enum: [CUSTOMER, DRIVER, ARTISAN, MERCHANT, ADMIN, SUPER_ADMIN, SUPPORT_AGENT]
+    UserStatus:
+      type: string
+      enum: [ACTIVE, PENDING, SUSPENDED, BANNED]
+    KycStatus:
+      type: string
+      enum: [NOT_SUBMITTED, PENDING, APPROVED, REJECTED]
+    OrderType:
+      type: string
+      enum: [FOOD, PHARMACY, GROCERY, PARCEL, ARTISAN_SERVICE, MARKETPLACE]
+    OrderStatus:
+      type: string
+      enum: [PENDING, CONFIRMED, PREPARING, READY, ASSIGNED, PICKED_UP, IN_TRANSIT, DELIVERED, CANCELLED, REFUNDED]
+    DeliveryStatus:
+      type: string
+      enum: [UNASSIGNED, ASSIGNED, ACCEPTED, EN_ROUTE_PICKUP, PICKED_UP, EN_ROUTE_DROPOFF, COMPLETED, FAILED]
+    PaymentMethod:
+      type: string
+      enum: [ORANGE_MONEY, WAVE, CARD, WALLET, CASH]
+    PaymentStatus:
+      type: string
+      enum: [INITIATED, PENDING, SUCCEEDED, FAILED, REFUNDED]
+    TransactionType:
+      type: string
+      enum: [DEPOSIT, WITHDRAWAL, TRANSFER, PAYMENT, REFUND, COMMISSION, PAYOUT]
+    TicketStatus:
+      type: string
+      enum: [OPEN, IN_PROGRESS, WAITING_CUSTOMER, RESOLVED, CLOSED, ESCALATED]
+
+    # ---------- Entités ----------
+    Address:
+      type: object
+      required: [id, label, line1, city, location]
+      properties:
+        id:
+          type: string
+          format: uuid
+        label:
+          type: string
+          examples: ["Domicile"]
+        line1:
+          type: string
+        line2:
+          type: [string, "null"]
+        city:
+          type: string
+          examples: ["Bamako"]
+        district:
+          type: [string, "null"]
+          examples: ["Hamdallaye ACI 2000"]
+        location:
+          $ref: '#/components/schemas/GeoPoint'
+        isDefault:
+          type: boolean
+    User:
+      type: object
+      required: [id, phone, roles, status, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        phone:
+          type: string
+          examples: ["+22370000000"]
+        email:
+          type: [string, "null"]
+          format: email
+        firstName:
+          type: [string, "null"]
+        lastName:
+          type: [string, "null"]
+        photoUrl:
+          type: [string, "null"]
+          format: uri
+        roles:
+          type: array
+          items:
+            $ref: '#/components/schemas/Role'
+        status:
+          $ref: '#/components/schemas/UserStatus'
+        locale:
+          type: string
+          examples: ["fr"]
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    Favorite:
+      type: object
+      required: [id, targetType, targetId]
+      properties:
+        id:
+          type: string
+          format: uuid
+        targetType:
+          type: string
+          enum: [STORE, PRODUCT, ARTISAN, DRIVER]
+        targetId:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+    Driver:
+      type: object
+      required: [id, userId, kycStatus, isAvailable]
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        userName:
+          type: [string, "null"]
+          examples: ["Moussa Keïta"]
+        userPhone:
+          type: [string, "null"]
+          examples: ["+22375000000"]
+        vehicleType:
+          type: string
+          enum: [MOTO, CAR, BICYCLE, VAN]
+        plateNumber:
+          type: [string, "null"]
+        kycStatus:
+          $ref: '#/components/schemas/KycStatus'
+        isAvailable:
+          type: boolean
+        rating:
+          type: number
+          format: float
+          examples: [4.7]
+        currentLocation:
+          $ref: '#/components/schemas/GeoPoint'
+        totalDeliveries:
+          type: integer
+        documents:
+          type: array
+          items:
+            $ref: '#/components/schemas/DriverDocument'
+        createdAt:
+          type: string
+          format: date-time
+    DriverDocument:
+      type: object
+      required: [id, type, url, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [ID_CARD, DRIVER_LICENSE, VEHICLE_REG, INSURANCE]
+        url:
+          type: string
+          format: uri
+        status:
+          type: string
+          enum: [PENDING, APPROVED, REJECTED]
+        uploadedAt:
+          type: string
+          format: date-time
+    Artisan:
+      type: object
+      required: [id, userId, profession]
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        profession:
+          type: string
+          examples: ["Plombier"]
+        bio:
+          type: [string, "null"]
+        rating:
+          type: number
+          format: float
+        isAvailable:
+          type: boolean
+        serviceArea:
+          type: [string, "null"]
+        createdAt:
+          type: string
+          format: date-time
+    ArtisanService:
+      type: object
+      required: [id, artisanId, title, price]
+      properties:
+        id:
+          type: string
+          format: uuid
+        artisanId:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type: [string, "null"]
+        price:
+          $ref: '#/components/schemas/Money'
+        durationMinutes:
+          type: integer
+    Quotation:
+      type: object
+      required: [id, artisanId, customerId, amount, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        artisanId:
+          type: string
+          format: uuid
+        customerId:
+          type: string
+          format: uuid
+        description:
+          type: string
+        amount:
+          $ref: '#/components/schemas/Money'
+        status:
+          type: string
+          enum: [DRAFT, SENT, ACCEPTED, REJECTED, EXPIRED]
+        createdAt:
+          type: string
+          format: date-time
+    Merchant:
+      type: object
+      required: [id, userId, businessName]
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        businessName:
+          type: string
+        category:
+          type: string
+          enum: [RESTAURANT, PHARMACY, SUPERMARKET, SHOP, OTHER]
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+    Store:
+      type: object
+      required: [id, merchantId, name, location]
+      properties:
+        id:
+          type: string
+          format: uuid
+        merchantId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        category:
+          type: string
+        location:
+          $ref: '#/components/schemas/GeoPoint'
+        isOpen:
+          type: boolean
+        rating:
+          type: number
+          format: float
+    Product:
+      type: object
+      required: [id, storeId, name, price, inStock]
+      properties:
+        id:
+          type: string
+          format: uuid
+        storeId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: [string, "null"]
+        price:
+          $ref: '#/components/schemas/Money'
+        imageUrl:
+          type: [string, "null"]
+          format: uri
+        inStock:
+          type: boolean
+        stockQuantity:
+          type: integer
+    OrderItem:
+      type: object
+      required: [productId, name, quantity, unitPrice]
+      properties:
+        productId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        quantity:
+          type: integer
+          minimum: 1
+        unitPrice:
+          $ref: '#/components/schemas/Money'
+    Order:
+      type: object
+      required: [id, customerId, type, status, items, total, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        reference:
+          type: string
+          examples: ["MLP-2026-000137"]
+        customerId:
+          type: string
+          format: uuid
+        storeId:
+          type: [string, "null"]
+          format: uuid
+        type:
+          $ref: '#/components/schemas/OrderType'
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderItem'
+        deliveryAddress:
+          $ref: '#/components/schemas/Address'
+        subtotal:
+          $ref: '#/components/schemas/Money'
+        deliveryFee:
+          $ref: '#/components/schemas/Money'
+        total:
+          $ref: '#/components/schemas/Money'
+        paymentMethod:
+          $ref: '#/components/schemas/PaymentMethod'
+        createdAt:
+          type: string
+          format: date-time
+    Delivery:
+      type: object
+      required: [id, orderId, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        orderId:
+          type: string
+          format: uuid
+        driverId:
+          type: [string, "null"]
+          format: uuid
+        status:
+          $ref: '#/components/schemas/DeliveryStatus'
+        pickupLocation:
+          $ref: '#/components/schemas/GeoPoint'
+        dropoffLocation:
+          $ref: '#/components/schemas/GeoPoint'
+        etaMinutes:
+          type: [integer, "null"]
+        distanceMeters:
+          type: [integer, "null"]
+        acceptedAt:
+          type: [string, "null"]
+          format: date-time
+        completedAt:
+          type: [string, "null"]
+          format: date-time
+    Payment:
+      type: object
+      required: [id, orderId, method, status, amount]
+      properties:
+        id:
+          type: string
+          format: uuid
+        orderId:
+          type: [string, "null"]
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        method:
+          $ref: '#/components/schemas/PaymentMethod'
+        status:
+          $ref: '#/components/schemas/PaymentStatus'
+        amount:
+          $ref: '#/components/schemas/Money'
+        providerRef:
+          type: [string, "null"]
+          examples: ["OM-TX-99182"]
+        createdAt:
+          type: string
+          format: date-time
+    Wallet:
+      type: object
+      required: [id, userId, balance]
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        balance:
+          $ref: '#/components/schemas/Money'
+        isLocked:
+          type: boolean
+        updatedAt:
+          type: string
+          format: date-time
+    Transaction:
+      type: object
+      required: [id, walletId, type, amount, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        walletId:
+          type: string
+          format: uuid
+        type:
+          $ref: '#/components/schemas/TransactionType'
+        amount:
+          $ref: '#/components/schemas/Money'
+        balanceAfter:
+          $ref: '#/components/schemas/Money'
+        reference:
+          type: [string, "null"]
+        createdAt:
+          type: string
+          format: date-time
+    Conversation:
+      type: object
+      required: [id, participantIds]
+      properties:
+        id:
+          type: string
+          format: uuid
+        participantIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+        orderId:
+          type: [string, "null"]
+          format: uuid
+        lastMessagePreview:
+          type: [string, "null"]
+        updatedAt:
+          type: string
+          format: date-time
+    Message:
+      type: object
+      required: [id, conversationId, senderId, body, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        conversationId:
+          type: string
+          format: uuid
+        senderId:
+          type: string
+          format: uuid
+        body:
+          type: string
+        attachmentUrl:
+          type: [string, "null"]
+          format: uri
+        createdAt:
+          type: string
+          format: date-time
+    TypingEvent:
+      type: object
+      required: [conversationId, userId, isTyping]
+      properties:
+        conversationId:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        isTyping:
+          type: boolean
+    OrderTrackingEvent:
+      type: object
+      required: [orderId, status]
+      properties:
+        orderId:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+        driverLocation:
+          $ref: '#/components/schemas/GeoPoint'
+        etaMinutes:
+          type: [integer, "null"]
+    Notification:
+      type: object
+      required: [id, userId, channel, title, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        channel:
+          type: string
+          enum: [PUSH, SMS, EMAIL, IN_APP]
+        title:
+          type: string
+        body:
+          type: [string, "null"]
+        isRead:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+    NotificationPreferences:
+      type: object
+      properties:
+        push:
+          type: boolean
+        sms:
+          type: boolean
+        email:
+          type: boolean
+        marketing:
+          type: boolean
+    Review:
+      type: object
+      required: [id, authorId, targetType, targetId, rating]
+      properties:
+        id:
+          type: string
+          format: uuid
+        authorId:
+          type: string
+          format: uuid
+        targetType:
+          type: string
+          enum: [ORDER, DRIVER, STORE, ARTISAN, PRODUCT]
+        targetId:
+          type: string
+          format: uuid
+        rating:
+          type: integer
+          minimum: 1
+          maximum: 5
+        comment:
+          type: [string, "null"]
+        createdAt:
+          type: string
+          format: date-time
+    Coupon:
+      type: object
+      required: [code, discountType, value]
+      properties:
+        code:
+          type: string
+          examples: ["MALI10"]
+        discountType:
+          type: string
+          enum: [PERCENT, FIXED]
+        value:
+          type: integer
+          examples: [10]
+        minOrderAmount:
+          type: [integer, "null"]
+        expiresAt:
+          type: [string, "null"]
+          format: date-time
+        isActive:
+          type: boolean
+    Promotion:
+      type: object
+      required: [id, title, isActive]
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type: [string, "null"]
+        bannerUrl:
+          type: [string, "null"]
+          format: uri
+        startsAt:
+          type: [string, "null"]
+          format: date-time
+        endsAt:
+          type: [string, "null"]
+          format: date-time
+        isActive:
+          type: boolean
+    SupportTicket:
+      type: object
+      required: [id, userId, subject, status, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        orderId:
+          type: [string, "null"]
+          format: uuid
+        subject:
+          type: string
+        category:
+          type: string
+          enum: [ORDER, PAYMENT, DELIVERY, ACCOUNT, OTHER]
+        priority:
+          type: string
+          enum: [LOW, MEDIUM, HIGH, URGENT]
+        status:
+          $ref: '#/components/schemas/TicketStatus'
+        assignedTo:
+          type: [string, "null"]
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+    AuditLog:
+      type: object
+      required: [id, actorId, action, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        actorId:
+          type: string
+          format: uuid
+        action:
+          type: string
+          examples: ["DRIVER_VALIDATED"]
+        entityType:
+          type: string
+        entityId:
+          type: [string, "null"]
+          format: uuid
+        metadata:
+          type: object
+          additionalProperties: true
+        ip:
+          type: [string, "null"]
+        createdAt:
+          type: string
+          format: date-time
+    ReconciliationStatus:
+      type: string
+      enum: [MATCHED, MISSING_IN_PROVIDER, MISSING_IN_INTERNAL, AMOUNT_MISMATCH]
+    ReconciliationLine:
+      type: object
+      required: [status, provider]
+      properties:
+        internalRef:
+          type: [string, "null"]
+          examples: ["MLP-PAY-8842"]
+        providerRef:
+          type: [string, "null"]
+          examples: ["OM-TX-99182"]
+        provider:
+          type: string
+          enum: [ORANGE_MONEY, WAVE, CARD]
+        internalAmount:
+          $ref: '#/components/schemas/Money'
+        providerAmount:
+          $ref: '#/components/schemas/Money'
+        status:
+          $ref: '#/components/schemas/ReconciliationStatus'
+        occurredAt:
+          type: [string, "null"]
+          format: date-time
+    ReconciliationSummary:
+      type: object
+      required: [internalTotal, providerTotal, matched, discrepancies]
+      properties:
+        internalTotal:
+          $ref: '#/components/schemas/Money'
+        providerTotal:
+          $ref: '#/components/schemas/Money'
+        difference:
+          $ref: '#/components/schemas/Money'
+        matched:
+          type: integer
+        discrepancies:
+          type: integer
+    ReconciliationReport:
+      type: object
+      required: [provider, summary, lines]
+      properties:
+        provider:
+          type: string
+          enum: [ORANGE_MONEY, WAVE, CARD]
+        periodFrom:
+          type: [string, "null"]
+          format: date-time
+        periodTo:
+          type: [string, "null"]
+          format: date-time
+        summary:
+          $ref: '#/components/schemas/ReconciliationSummary'
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReconciliationLine'
+    CommissionSettings:
+      type: object
+      required: [deliveryPercent, merchantPercent, artisanPercent]
+      properties:
+        deliveryPercent:
+          type: number
+          minimum: 0
+          maximum: 100
+          examples: [12.5]
+        merchantPercent:
+          type: number
+          minimum: 0
+          maximum: 100
+          examples: [15]
+        artisanPercent:
+          type: number
+          minimum: 0
+          maximum: 100
+          examples: [10]
+        updatedAt:
+          type: [string, "null"]
+          format: date-time
+    KpiSummary:
+      type: object
+      properties:
+        gmv:
+          $ref: '#/components/schemas/Money'
+        ordersCount:
+          type: integer
+        activeDrivers:
+          type: integer
+        newCustomers:
+          type: integer
+        avgDeliveryMinutes:
+          type: number
+          format: float
+
+    # ---------- Corps de requête ----------
+    RegisterRequest:
+      type: object
+      required: [phone, role]
+      properties:
+        phone:
+          type: string
+          pattern: '^\+223[0-9]{8}$'
+          examples: ["+22370000000"]
+        role:
+          $ref: '#/components/schemas/Role'
+        firstName:
+          type: string
+        lastName:
+          type: string
+        email:
+          type: [string, "null"]
+          format: email
+    VerifyOtpRequest:
+      type: object
+      required: [phone, code]
+      properties:
+        phone:
+          type: string
+          examples: ["+22370000000"]
+        code:
+          type: string
+          pattern: '^[0-9]{6}$'
+          examples: ["482913"]
+    LoginRequest:
+      type: object
+      required: [phone]
+      properties:
+        phone:
+          type: string
+          examples: ["+22370000000"]
+        password:
+          type: [string, "null"]
+    RefreshTokenRequest:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken:
+          type: string
+    ForgotPasswordRequest:
+      type: object
+      required: [phone]
+      properties:
+        phone:
+          type: string
+    ResetPasswordRequest:
+      type: object
+      required: [token, newPassword]
+      properties:
+        token:
+          type: string
+        newPassword:
+          type: string
+          minLength: 8
+    AuthTokens:
+      type: object
+      required: [accessToken, refreshToken, expiresIn]
+      properties:
+        accessToken:
+          type: string
+        refreshToken:
+          type: string
+        expiresIn:
+          type: integer
+          examples: [900]
+        tokenType:
+          type: string
+          const: Bearer
+        user:
+          $ref: '#/components/schemas/User'
+    UpdateProfileRequest:
+      type: object
+      properties:
+        firstName:
+          type: string
+        lastName:
+          type: string
+        email:
+          type: [string, "null"]
+          format: email
+        locale:
+          type: string
+    CreateAddressRequest:
+      type: object
+      required: [label, line1, city, location]
+      properties:
+        label:
+          type: string
+        line1:
+          type: string
+        line2:
+          type: [string, "null"]
+        city:
+          type: string
+        district:
+          type: [string, "null"]
+        location:
+          $ref: '#/components/schemas/GeoPoint'
+        isDefault:
+          type: boolean
+    CreateOrderRequest:
+      type: object
+      required: [type, items, deliveryAddressId, paymentMethod]
+      properties:
+        type:
+          $ref: '#/components/schemas/OrderType'
+        storeId:
+          type: [string, "null"]
+          format: uuid
+        items:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [productId, quantity]
+            properties:
+              productId:
+                type: string
+                format: uuid
+              quantity:
+                type: integer
+                minimum: 1
+        deliveryAddressId:
+          type: string
+          format: uuid
+        paymentMethod:
+          $ref: '#/components/schemas/PaymentMethod'
+        couponCode:
+          type: [string, "null"]
+        note:
+          type: [string, "null"]
+    PaymentInitRequest:
+      type: object
+      required: [orderId, phone]
+      properties:
+        orderId:
+          type: string
+          format: uuid
+        phone:
+          type: string
+          examples: ["+22370000000"]
+    WalletDepositRequest:
+      type: object
+      required: [amount, method, phone]
+      properties:
+        amount:
+          type: integer
+          minimum: 100
+        method:
+          $ref: '#/components/schemas/PaymentMethod'
+        phone:
+          type: string
+    WalletTransferRequest:
+      type: object
+      required: [toPhone, amount]
+      properties:
+        toPhone:
+          type: string
+        amount:
+          type: integer
+          minimum: 100
+        note:
+          type: [string, "null"]
+    CreateReviewRequest:
+      type: object
+      required: [targetType, targetId, rating]
+      properties:
+        targetType:
+          type: string
+          enum: [ORDER, DRIVER, STORE, ARTISAN, PRODUCT]
+        targetId:
+          type: string
+          format: uuid
+        rating:
+          type: integer
+          minimum: 1
+          maximum: 5
+        comment:
+          type: [string, "null"]
+    CreateTicketRequest:
+      type: object
+      required: [subject, category]
+      properties:
+        subject:
+          type: string
+        category:
+          type: string
+          enum: [ORDER, PAYMENT, DELIVERY, ACCOUNT, OTHER]
+        orderId:
+          type: [string, "null"]
+          format: uuid
+        message:
+          type: string
+
+paths:
+  # ============================= AUTH =============================
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Inscription (déclenche l'OTP SMS)
+      operationId: authRegister
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+            example:
+              phone: "+22370000000"
+              role: CUSTOMER
+              firstName: Aminata
+              lastName: Traoré
+      responses:
+        '201':
+          description: OTP envoyé.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+              example:
+                success: true
+                message: OTP envoyé au +22370000000.
+                data:
+                  otpExpiresIn: 300
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+  /auth/verify-otp:
+    post:
+      tags: [Auth]
+      summary: Vérifier l'OTP et émettre les tokens
+      operationId: authVerifyOtp
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyOtpRequest'
+            example:
+              phone: "+22370000000"
+              code: "482913"
+      responses:
+        '200':
+          description: Authentifié.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AuthTokens'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /auth/resend-otp:
+    post:
+      tags: [Auth]
+      summary: Renvoyer l'OTP
+      operationId: authResendOtp
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200': { description: OTP renvoyé., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Connexion
+      operationId: authLogin
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            example:
+              phone: "+22370000000"
+      responses:
+        '200':
+          description: Connecté.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AuthTokens'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+  /auth/refresh-token:
+    post:
+      tags: [Auth]
+      summary: Renouveler l'access token
+      operationId: authRefreshToken
+      security:
+        - refreshToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshTokenRequest'
+      responses:
+        '200':
+          description: Nouveau jeu de tokens.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AuthTokens'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Déconnexion (révoque le refresh token)
+      operationId: authLogout
+      responses:
+        '204': { description: Déconnecté. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /auth/forgot-password:
+    post:
+      tags: [Auth]
+      summary: Demander la réinitialisation du mot de passe
+      operationId: authForgotPassword
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ForgotPasswordRequest'
+      responses:
+        '200': { description: Instructions envoyées., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+  /auth/reset-password:
+    post:
+      tags: [Auth]
+      summary: Réinitialiser le mot de passe
+      operationId: authResetPassword
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetPasswordRequest'
+      responses:
+        '200': { description: Mot de passe mis à jour., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+
+  # ============================= USERS =============================
+  /users/me:
+    get:
+      tags: [Users]
+      summary: Profil courant
+      operationId: getMyProfile
+      responses:
+        '200':
+          description: Profil.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/User'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    patch:
+      tags: [Users]
+      summary: Mettre à jour le profil
+      operationId: updateMyProfile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProfileRequest'
+      responses:
+        '200':
+          description: Profil mis à jour.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/User'
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /users/me/photo:
+    post:
+      tags: [Users]
+      summary: Uploader la photo de profil
+      operationId: uploadMyPhoto
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200': { description: Photo mise à jour., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /users/me/documents:
+    post:
+      tags: [Users]
+      summary: Uploader des documents (KYC)
+      operationId: uploadMyDocuments
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [type, file]
+              properties:
+                type:
+                  type: string
+                  enum: [ID_CARD, DRIVER_LICENSE, VEHICLE_REG, BUSINESS_LICENSE]
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '201': { description: Document reçu., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /users/me/addresses:
+    get:
+      tags: [Users]
+      summary: Lister mes adresses
+      operationId: listMyAddresses
+      responses:
+        '200':
+          description: Adresses.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Address'
+    post:
+      tags: [Users]
+      summary: Ajouter une adresse
+      operationId: createMyAddress
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAddressRequest'
+      responses:
+        '201':
+          description: Adresse créée.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Address'
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /users/me/addresses/{addressId}:
+    parameters:
+      - name: addressId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    patch:
+      tags: [Users]
+      summary: Modifier une adresse
+      operationId: updateMyAddress
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAddressRequest'
+      responses:
+        '200': { description: Adresse modifiée., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Users]
+      summary: Supprimer une adresse
+      operationId: deleteMyAddress
+      responses:
+        '204': { description: Supprimée. }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /users/me/favorites:
+    get:
+      tags: [Users]
+      summary: Lister mes favoris
+      operationId: listMyFavorites
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: Favoris.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Favorite'
+    post:
+      tags: [Users]
+      summary: Ajouter un favori
+      operationId: addMyFavorite
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [targetType, targetId]
+              properties:
+                targetType: { type: string, enum: [STORE, PRODUCT, ARTISAN, DRIVER] }
+                targetId: { type: string, format: uuid }
+      responses:
+        '201': { description: Favori ajouté., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /users/me/favorites/{favoriteId}:
+    delete:
+      tags: [Users]
+      summary: Retirer un favori
+      operationId: removeMyFavorite
+      parameters:
+        - name: favoriteId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204': { description: Retiré. }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ============================= CUSTOMERS =============================
+  /customers/me/dashboard:
+    get:
+      tags: [Customers]
+      summary: Tableau de bord client
+      operationId: customerDashboard
+      x-required-roles: [CUSTOMER]
+      responses:
+        '200': { description: Données du tableau de bord., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /customers/me/orders:
+    get:
+      tags: [Customers]
+      summary: Mes commandes
+      operationId: customerOrders
+      x-required-roles: [CUSTOMER]
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/StatusFilterParam'
+        - $ref: '#/components/parameters/SortParam'
+      responses:
+        '200':
+          description: Commandes paginées.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Order'
+  /customers/me/payments:
+    get:
+      tags: [Customers]
+      summary: Mes paiements
+      operationId: customerPayments
+      x-required-roles: [CUSTOMER]
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: Paiements paginés.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Payment'
+  /customers/me/wallet:
+    get:
+      tags: [Customers]
+      summary: Mon wallet
+      operationId: customerWallet
+      x-required-roles: [CUSTOMER]
+      responses:
+        '200':
+          description: Wallet.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Wallet'
+  /customers/me/loyalty:
+    get:
+      tags: [Customers]
+      summary: Programme de fidélité
+      operationId: customerLoyalty
+      x-required-roles: [CUSTOMER]
+      responses:
+        '200': { description: Points et paliers., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+
+  # ============================= DRIVERS =============================
+  /drivers/register:
+    post:
+      tags: [Drivers]
+      summary: Inscription livreur
+      operationId: driverRegister
+      x-required-roles: [DRIVER]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [vehicleType]
+              properties:
+                vehicleType: { type: string, enum: [MOTO, CAR, BICYCLE, VAN] }
+                plateNumber: { type: string }
+      responses:
+        '201':
+          description: Profil livreur créé (KYC en attente).
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Driver'
+        '409': { $ref: '#/components/responses/Conflict' }
+  /drivers/{driverId}/validate:
+    post:
+      tags: [Drivers]
+      summary: Valider/rejeter un livreur (KYC)
+      operationId: driverValidate
+      x-required-roles: [ADMIN, SUPER_ADMIN]
+      parameters:
+        - name: driverId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision: { type: string, enum: [APPROVED, REJECTED] }
+                reason: { type: string }
+      responses:
+        '200':
+          description: Décision appliquée.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Driver'
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /drivers/me:
+    get:
+      tags: [Drivers]
+      summary: Mon profil livreur
+      operationId: driverMe
+      x-required-roles: [DRIVER]
+      responses:
+        '200':
+          description: Profil livreur.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Driver'
+  /drivers/me/availability:
+    patch:
+      tags: [Drivers]
+      summary: Basculer la disponibilité
+      operationId: driverAvailability
+      x-required-roles: [DRIVER]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [isAvailable]
+              properties:
+                isAvailable: { type: boolean }
+                location: { $ref: '#/components/schemas/GeoPoint' }
+      responses:
+        '200': { description: Disponibilité mise à jour., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+  /drivers/me/deliveries:
+    get:
+      tags: [Drivers]
+      summary: Mes livraisons
+      operationId: driverDeliveries
+      x-required-roles: [DRIVER]
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/StatusFilterParam'
+      responses:
+        '200':
+          description: Livraisons paginées.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Delivery'
+  /drivers/me/earnings:
+    get:
+      tags: [Drivers]
+      summary: Mes gains
+      operationId: driverEarnings
+      x-required-roles: [DRIVER]
+      parameters:
+        - $ref: '#/components/parameters/DateFromParam'
+        - $ref: '#/components/parameters/DateToParam'
+      responses:
+        '200': { description: Synthèse des gains., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+  /drivers/me/withdrawals:
+    post:
+      tags: [Drivers]
+      summary: Demander un retrait
+      operationId: driverWithdraw
+      x-required-roles: [DRIVER]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amount, method, phone]
+              properties:
+                amount: { type: integer, minimum: 500 }
+                method: { $ref: '#/components/schemas/PaymentMethod' }
+                phone: { type: string }
+      responses:
+        '201': { description: Retrait initié., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /drivers/me/statistics:
+    get:
+      tags: [Drivers]
+      summary: Statistiques et classement
+      operationId: driverStatistics
+      x-required-roles: [DRIVER]
+      responses:
+        '200': { description: Statistiques., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+
+  # ============================= ARTISANS =============================
+  /artisans/me:
+    get:
+      tags: [Artisans]
+      summary: Mon profil artisan
+      operationId: artisanMe
+      x-required-roles: [ARTISAN]
+      responses:
+        '200':
+          description: Profil artisan.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Artisan'
+    patch:
+      tags: [Artisans]
+      summary: Mettre à jour mon profil artisan
+      operationId: artisanUpdate
+      x-required-roles: [ARTISAN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                profession: { type: string }
+                bio: { type: string }
+                serviceArea: { type: string }
+      responses:
+        '200': { description: Profil mis à jour., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+  /artisans/me/services:
+    get:
+      tags: [Artisans]
+      summary: Mes services
+      operationId: artisanServices
+      x-required-roles: [ARTISAN]
+      responses:
+        '200':
+          description: Services.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/ArtisanService'
+    post:
+      tags: [Artisans]
+      summary: Ajouter un service
+      operationId: artisanCreateService
+      x-required-roles: [ARTISAN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, price]
+              properties:
+                title: { type: string }
+                description: { type: string }
+                price: { $ref: '#/components/schemas/Money' }
+                durationMinutes: { type: integer }
+      responses:
+        '201': { description: Service créé., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+  /artisans/me/services/{serviceId}:
+    parameters:
+      - name: serviceId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    patch:
+      tags: [Artisans]
+      summary: Modifier un service
+      operationId: artisanUpdateService
+      x-required-roles: [ARTISAN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ArtisanService' }
+      responses:
+        '200': { description: Modifié., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Artisans]
+      summary: Supprimer un service
+      operationId: artisanDeleteService
+      x-required-roles: [ARTISAN]
+      responses:
+        '204': { description: Supprimé. }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /artisans/me/quotations:
+    get:
+      tags: [Artisans]
+      summary: Mes devis
+      operationId: artisanQuotations
+      x-required-roles: [ARTISAN]
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: Devis paginés.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Quotation'
+    post:
+      tags: [Artisans]
+      summary: Émettre un devis
+      operationId: artisanCreateQuotation
+      x-required-roles: [ARTISAN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [customerId, description, amount]
+              properties:
+                customerId: { type: string, format: uuid }
+                description: { type: string }
+                amount: { $ref: '#/components/schemas/Money' }
+      responses:
+        '201': { description: Devis créé., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+  /artisans/me/quotations/{quotationId}:
+    patch:
+      tags: [Artisans]
+      summary: Mettre à jour un devis
+      operationId: artisanUpdateQuotation
+      x-required-roles: [ARTISAN]
+      parameters:
+        - name: quotationId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status: { type: string, enum: [SENT, ACCEPTED, REJECTED, EXPIRED] }
+      responses:
+        '200': { description: Devis mis à jour., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /artisans/me/schedules:
+    get:
+      tags: [Artisans]
+      summary: Mon agenda
+      operationId: artisanSchedules
+      x-required-roles: [ARTISAN]
+      responses:
+        '200': { description: Créneaux., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+    put:
+      tags: [Artisans]
+      summary: Définir mes disponibilités
+      operationId: artisanSetSchedules
+      x-required-roles: [ARTISAN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                slots:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      day: { type: string, enum: [MON, TUE, WED, THU, FRI, SAT, SUN] }
+                      from: { type: string, examples: ["08:00"] }
+                      to: { type: string, examples: ["18:00"] }
+      responses:
+        '200': { description: Agenda mis à jour., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+  /artisans/me/earnings:
+    get:
+      tags: [Artisans]
+      summary: Mes gains
+      operationId: artisanEarnings
+      x-required-roles: [ARTISAN]
+      responses:
+        '200': { description: Gains., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+
+  # ============================= MERCHANTS =============================
+  /merchants/me/stores:
+    get:
+      tags: [Merchants]
+      summary: Mes boutiques
+      operationId: merchantStores
+      x-required-roles: [MERCHANT]
+      responses:
+        '200':
+          description: Boutiques.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Store'
+    post:
+      tags: [Merchants]
+      summary: Créer une boutique
+      operationId: merchantCreateStore
+      x-required-roles: [MERCHANT]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, location]
+              properties:
+                name: { type: string }
+                category: { type: string }
+                location: { $ref: '#/components/schemas/GeoPoint' }
+      responses:
+        '201': { description: Boutique créée., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+  /merchants/stores/{storeId}:
+    patch:
+      tags: [Merchants]
+      summary: Modifier une boutique
+      operationId: merchantUpdateStore
+      x-required-roles: [MERCHANT]
+      parameters:
+        - name: storeId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Store' }
+      responses:
+        '200': { description: Modifiée., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /merchants/stores/{storeId}/products:
+    parameters:
+      - name: storeId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Merchants]
+      summary: Produits d'une boutique
+      operationId: merchantStoreProducts
+      x-required-roles: [MERCHANT]
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/SearchParam'
+      responses:
+        '200':
+          description: Produits paginés.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Product'
+    post:
+      tags: [Merchants]
+      summary: Ajouter un produit
+      operationId: merchantCreateProduct
+      x-required-roles: [MERCHANT]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, price]
+              properties:
+                name: { type: string }
+                description: { type: string }
+                price: { $ref: '#/components/schemas/Money' }
+                stockQuantity: { type: integer }
+      responses:
+        '201': { description: Produit créé., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+  /merchants/products/{productId}:
+    parameters:
+      - name: productId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    patch:
+      tags: [Merchants]
+      summary: Modifier un produit (prix, infos)
+      operationId: merchantUpdateProduct
+      x-required-roles: [MERCHANT]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Product' }
+      responses:
+        '200': { description: Modifié., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Merchants]
+      summary: Supprimer un produit
+      operationId: merchantDeleteProduct
+      x-required-roles: [MERCHANT]
+      responses:
+        '204': { description: Supprimé. }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /merchants/products/{productId}/inventory:
+    patch:
+      tags: [Merchants]
+      summary: Mettre à jour le stock
+      operationId: merchantUpdateInventory
+      x-required-roles: [MERCHANT]
+      parameters:
+        - name: productId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [stockQuantity]
+              properties:
+                stockQuantity: { type: integer, minimum: 0 }
+      responses:
+        '200': { description: Stock mis à jour., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+  /merchants/stores/{storeId}/promotions:
+    parameters:
+      - name: storeId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Merchants]
+      summary: Promotions de la boutique
+      operationId: merchantStorePromotions
+      x-required-roles: [MERCHANT]
+      responses:
+        '200':
+          description: Promotions.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Promotion'
+    post:
+      tags: [Merchants]
+      summary: Créer une promotion
+      operationId: merchantCreatePromotion
+      x-required-roles: [MERCHANT]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Promotion' }
+      responses:
+        '201': { description: Promotion créée., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+  /merchants/stores/{storeId}/reports:
+    get:
+      tags: [Merchants]
+      summary: Rapports financiers de la boutique
+      operationId: merchantStoreReports
+      x-required-roles: [MERCHANT]
+      parameters:
+        - name: storeId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/DateFromParam'
+        - $ref: '#/components/parameters/DateToParam'
+      responses:
+        '200': { description: Rapport., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+
+  # ============================= ORDERS =============================
+  /orders:
+    get:
+      tags: [Orders]
+      summary: Historique des commandes
+      operationId: listOrders
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/StatusFilterParam'
+        - $ref: '#/components/parameters/SortParam'
+        - $ref: '#/components/parameters/DateFromParam'
+        - $ref: '#/components/parameters/DateToParam'
+      responses:
+        '200':
+          description: Commandes paginées.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Order'
+    post:
+      tags: [Orders]
+      summary: Créer une commande
+      operationId: createOrder
+      x-required-roles: [CUSTOMER]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrderRequest'
+            example:
+              type: FOOD
+              storeId: 6f1c2a90-1b2c-4d3e-8f90-abcdef012345
+              items:
+                - productId: 11111111-1111-1111-1111-111111111111
+                  quantity: 2
+              deliveryAddressId: 22222222-2222-2222-2222-222222222222
+              paymentMethod: ORANGE_MONEY
+              couponCode: MALI10
+      responses:
+        '201':
+          description: Commande créée.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Order'
+              example:
+                success: true
+                data:
+                  id: 33333333-3333-3333-3333-333333333333
+                  reference: MLP-2026-000137
+                  type: FOOD
+                  status: PENDING
+                  total: { amount: 5250, currency: XOF }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /orders/{orderId}:
+    parameters:
+      - name: orderId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Orders]
+      summary: Détail d'une commande
+      operationId: getOrder
+      responses:
+        '200':
+          description: Commande.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Order'
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Orders]
+      summary: Mettre à jour une commande
+      operationId: updateOrder
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status: { $ref: '#/components/schemas/OrderStatus' }
+                note: { type: string }
+      responses:
+        '200': { description: Commande mise à jour., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /orders/{orderId}/cancel:
+    post:
+      tags: [Orders]
+      summary: Annuler une commande
+      operationId: cancelOrder
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: { type: string }
+      responses:
+        '200': { description: Commande annulée., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /orders/{orderId}/tracking:
+    get:
+      tags: [Orders]
+      summary: Suivi temps réel (snapshot REST)
+      operationId: trackOrder
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Position et statut. Le flux continu est fourni via WebSocket `order.tracking`.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/OrderTrackingEvent'
+        '404': { $ref: '#/components/responses/NotFound' }
+  /orders/{orderId}/rating:
+    post:
+      tags: [Orders]
+      summary: Noter une commande
+      operationId: rateOrder
+      x-required-roles: [CUSTOMER]
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [rating]
+              properties:
+                rating: { type: integer, minimum: 1, maximum: 5 }
+                comment: { type: string }
+      responses:
+        '201': { description: Note enregistrée., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  # ============================= DELIVERIES =============================
+  /deliveries/available:
+    get:
+      tags: [Deliveries]
+      summary: Livraisons disponibles à proximité
+      operationId: availableDeliveries
+      x-required-roles: [DRIVER]
+      parameters:
+        - name: lat
+          in: query
+          required: true
+          schema: { type: number, format: double }
+        - name: lng
+          in: query
+          required: true
+          schema: { type: number, format: double }
+        - name: radiusMeters
+          in: query
+          schema: { type: integer, default: 3000 }
+      responses:
+        '200':
+          description: Livraisons disponibles.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Delivery'
+  /deliveries/{deliveryId}:
+    get:
+      tags: [Deliveries]
+      summary: Détail d'une livraison
+      operationId: getDelivery
+      parameters:
+        - name: deliveryId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Livraison.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Delivery'
+        '404': { $ref: '#/components/responses/NotFound' }
+  /deliveries/{deliveryId}/accept:
+    post:
+      tags: [Deliveries]
+      summary: Accepter une livraison
+      operationId: acceptDelivery
+      x-required-roles: [DRIVER]
+      parameters:
+        - name: deliveryId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: Acceptée., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /deliveries/{deliveryId}/reject:
+    post:
+      tags: [Deliveries]
+      summary: Refuser une livraison
+      operationId: rejectDelivery
+      x-required-roles: [DRIVER]
+      parameters:
+        - name: deliveryId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: Refusée., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+  /deliveries/{deliveryId}/start:
+    post:
+      tags: [Deliveries]
+      summary: Démarrer la course
+      operationId: startDelivery
+      x-required-roles: [DRIVER]
+      parameters:
+        - name: deliveryId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: Démarrée., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /deliveries/{deliveryId}/complete:
+    post:
+      tags: [Deliveries]
+      summary: Terminer la livraison
+      operationId: completeDelivery
+      x-required-roles: [DRIVER]
+      parameters:
+        - name: deliveryId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                proofUrl: { type: string, format: uri }
+      responses:
+        '200': { description: Terminée., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /deliveries/{deliveryId}/issues:
+    post:
+      tags: [Deliveries]
+      summary: Signaler un incident
+      operationId: reportDeliveryIssue
+      x-required-roles: [DRIVER, CUSTOMER]
+      parameters:
+        - name: deliveryId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type, description]
+              properties:
+                type: { type: string, enum: [CUSTOMER_UNREACHABLE, WRONG_ADDRESS, DAMAGED, OTHER] }
+                description: { type: string }
+      responses:
+        '201': { description: Incident enregistré., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+
+  # ============================= PAYMENTS =============================
+  /payments/orange-money:
+    post:
+      tags: [Payments]
+      summary: Payer via Orange Money
+      operationId: payOrangeMoney
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PaymentInitRequest' }
+            example:
+              orderId: 33333333-3333-3333-3333-333333333333
+              phone: "+22370000000"
+      responses:
+        '202':
+          description: Paiement initié (attente confirmation USSD/OTP opérateur).
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Payment'
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /payments/wave:
+    post:
+      tags: [Payments]
+      summary: Payer via Wave
+      operationId: payWave
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PaymentInitRequest' }
+      responses:
+        '202':
+          description: Paiement initié.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Payment'
+  /payments/wallet:
+    post:
+      tags: [Payments]
+      summary: Payer avec le wallet interne
+      operationId: payWallet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [orderId]
+              properties:
+                orderId: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Paiement effectué.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Payment'
+        '409': { $ref: '#/components/responses/Conflict' }
+  /payments/{paymentId}:
+    get:
+      tags: [Payments]
+      summary: Détail d'un paiement
+      operationId: getPayment
+      parameters:
+        - name: paymentId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Paiement.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Payment'
+        '404': { $ref: '#/components/responses/NotFound' }
+  /payments/{paymentId}/refund:
+    post:
+      tags: [Payments]
+      summary: Rembourser un paiement
+      operationId: refundPayment
+      x-required-roles: [ADMIN, SUPER_ADMIN, SUPPORT_AGENT]
+      parameters:
+        - name: paymentId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                amount: { type: integer }
+                reason: { type: string }
+      responses:
+        '200': { description: Remboursement initié., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /payments/reconciliation:
+    get:
+      tags: [Payments]
+      summary: Réconciliation des paiements (opérateurs)
+      operationId: paymentReconciliation
+      x-required-roles: [ADMIN, SUPER_ADMIN]
+      parameters:
+        - $ref: '#/components/parameters/DateFromParam'
+        - $ref: '#/components/parameters/DateToParam'
+        - name: provider
+          in: query
+          schema: { type: string, enum: [ORANGE_MONEY, WAVE, CARD] }
+      responses:
+        '200':
+          description: Rapport de réconciliation.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ReconciliationReport'
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  # ============================= WALLET =============================
+  /wallet/balance:
+    get:
+      tags: [Wallet]
+      summary: Solde du wallet
+      operationId: walletBalance
+      responses:
+        '200':
+          description: Solde.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Wallet'
+  /wallet/deposit:
+    post:
+      tags: [Wallet]
+      summary: Alimenter le wallet
+      operationId: walletDeposit
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WalletDepositRequest' }
+      responses:
+        '202': { description: Dépôt initié., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /wallet/withdraw:
+    post:
+      tags: [Wallet]
+      summary: Retirer du wallet
+      operationId: walletWithdraw
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WalletDepositRequest' }
+      responses:
+        '202': { description: Retrait initié., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /wallet/transfer:
+    post:
+      tags: [Wallet]
+      summary: Transférer vers un autre utilisateur
+      operationId: walletTransfer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WalletTransferRequest' }
+      responses:
+        '200':
+          description: Transfert effectué.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Transaction'
+        '409': { $ref: '#/components/responses/Conflict' }
+  /wallet/transactions:
+    get:
+      tags: [Wallet]
+      summary: Historique des transactions
+      operationId: walletTransactions
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+        - name: type
+          in: query
+          schema: { $ref: '#/components/schemas/TransactionType' }
+      responses:
+        '200':
+          description: Transactions paginées.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Transaction'
+
+  # ============================= CHAT =============================
+  /chat/conversations:
+    get:
+      tags: [Chat]
+      summary: Mes conversations
+      operationId: listConversations
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: Conversations paginées.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Conversation'
+    post:
+      tags: [Chat]
+      summary: Ouvrir une conversation
+      operationId: createConversation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [participantId]
+              properties:
+                participantId: { type: string, format: uuid }
+                orderId: { type: string, format: uuid }
+      responses:
+        '201':
+          description: Conversation créée.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Conversation'
+  /chat/conversations/{conversationId}/messages:
+    parameters:
+      - name: conversationId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Chat]
+      summary: Messages d'une conversation
+      operationId: listMessages
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: Messages paginés.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Message'
+    post:
+      tags: [Chat]
+      summary: Envoyer un message
+      operationId: sendMessage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [body]
+              properties:
+                body: { type: string }
+      responses:
+        '201':
+          description: Message envoyé (diffusé aussi via WebSocket `chat.message`).
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Message'
+  /chat/conversations/{conversationId}/attachments:
+    post:
+      tags: [Chat]
+      summary: Envoyer une pièce jointe
+      operationId: sendAttachment
+      parameters:
+        - name: conversationId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        '201': { description: Pièce jointe envoyée., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+
+  # ============================= NOTIFICATIONS =============================
+  /notifications:
+    get:
+      tags: [Notifications]
+      summary: Mes notifications
+      operationId: listNotifications
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+        - name: unreadOnly
+          in: query
+          schema: { type: boolean, default: false }
+      responses:
+        '200':
+          description: Notifications paginées.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Notification'
+  /notifications/read:
+    post:
+      tags: [Notifications]
+      summary: Marquer comme lues
+      operationId: markNotificationsRead
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ids:
+                  type: array
+                  items: { type: string, format: uuid }
+                all: { type: boolean }
+      responses:
+        '200': { description: Notifications marquées lues., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+  /notifications/preferences:
+    get:
+      tags: [Notifications]
+      summary: Mes préférences de notification
+      operationId: getNotificationPreferences
+      responses:
+        '200':
+          description: Préférences.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/NotificationPreferences'
+    put:
+      tags: [Notifications]
+      summary: Mettre à jour mes préférences
+      operationId: updateNotificationPreferences
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NotificationPreferences' }
+      responses:
+        '200': { description: Préférences mises à jour., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+  /notifications/broadcast:
+    post:
+      tags: [Notifications]
+      summary: Diffuser une notification (push/SMS/email)
+      operationId: broadcastNotification
+      x-required-roles: [ADMIN, SUPER_ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [channel, title, audience]
+              properties:
+                channel: { type: string, enum: [PUSH, SMS, EMAIL] }
+                title: { type: string }
+                body: { type: string }
+                audience: { type: string, enum: [ALL, CUSTOMERS, DRIVERS, MERCHANTS, ARTISANS] }
+      responses:
+        '202': { description: Diffusion planifiée., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  # ============================= REVIEWS =============================
+  /reviews:
+    get:
+      tags: [Reviews]
+      summary: Lister les avis
+      operationId: listReviews
+      parameters:
+        - name: targetType
+          in: query
+          schema: { type: string, enum: [ORDER, DRIVER, STORE, ARTISAN, PRODUCT] }
+        - name: targetId
+          in: query
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: Avis paginés.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Review'
+    post:
+      tags: [Reviews]
+      summary: Publier un avis
+      operationId: createReview
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateReviewRequest' }
+      responses:
+        '201':
+          description: Avis publié.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Review'
+        '409': { $ref: '#/components/responses/Conflict' }
+  /reviews/{reviewId}:
+    get:
+      tags: [Reviews]
+      summary: Détail d'un avis
+      operationId: getReview
+      parameters:
+        - name: reviewId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Avis.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Review'
+        '404': { $ref: '#/components/responses/NotFound' }
+  /reviews/{reviewId}/report:
+    post:
+      tags: [Reviews]
+      summary: Signaler un avis
+      operationId: reportReview
+      parameters:
+        - name: reviewId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: { type: string }
+      responses:
+        '201': { description: Signalement enregistré., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+
+  # ============================= PROMOTIONS =============================
+  /promotions/coupons:
+    get:
+      tags: [Promotions]
+      summary: Lister les coupons
+      operationId: listCoupons
+      responses:
+        '200':
+          description: Coupons.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Coupon'
+    post:
+      tags: [Promotions]
+      summary: Créer un coupon
+      operationId: createCoupon
+      x-required-roles: [ADMIN, SUPER_ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Coupon' }
+      responses:
+        '201': { description: Coupon créé., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /promotions/coupons/validate:
+    post:
+      tags: [Promotions]
+      summary: Valider un coupon
+      operationId: validateCoupon
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: { type: string }
+                orderAmount: { type: integer }
+      responses:
+        '200':
+          description: Coupon valide.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Coupon'
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /promotions/referral:
+    get:
+      tags: [Promotions]
+      summary: Mon programme de parrainage
+      operationId: getReferral
+      responses:
+        '200': { description: Code et statistiques de parrainage., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+  /promotions/referral/redeem:
+    post:
+      tags: [Promotions]
+      summary: Utiliser un code de parrainage
+      operationId: redeemReferral
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: { type: string }
+      responses:
+        '200': { description: Parrainage appliqué., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /promotions/campaigns:
+    get:
+      tags: [Promotions]
+      summary: Campagnes actives
+      operationId: listCampaigns
+      responses:
+        '200':
+          description: Campagnes.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Promotion'
+
+  # ============================= SUPPORT =============================
+  /support/tickets:
+    get:
+      tags: [Support]
+      summary: Lister les tickets
+      operationId: listTickets
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/StatusFilterParam'
+      responses:
+        '200':
+          description: Tickets paginés.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/SupportTicket'
+    post:
+      tags: [Support]
+      summary: Ouvrir un ticket
+      operationId: createTicket
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateTicketRequest' }
+      responses:
+        '201':
+          description: Ticket créé.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SupportTicket'
+  /support/tickets/{ticketId}:
+    get:
+      tags: [Support]
+      summary: Détail d'un ticket
+      operationId: getTicket
+      parameters:
+        - name: ticketId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Ticket.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SupportTicket'
+        '404': { $ref: '#/components/responses/NotFound' }
+  /support/tickets/{ticketId}/messages:
+    post:
+      tags: [Support]
+      summary: Répondre à un ticket
+      operationId: replyTicket
+      parameters:
+        - name: ticketId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [body]
+              properties:
+                body: { type: string }
+      responses:
+        '201': { description: Réponse ajoutée., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+  /support/tickets/{ticketId}/escalate:
+    post:
+      tags: [Support]
+      summary: Escalader un ticket
+      operationId: escalateTicket
+      x-required-roles: [SUPPORT_AGENT, ADMIN, SUPER_ADMIN]
+      parameters:
+        - name: ticketId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: Ticket escaladé., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /support/disputes:
+    get:
+      tags: [Support]
+      summary: Lister les litiges
+      operationId: listDisputes
+      x-required-roles: [SUPPORT_AGENT, ADMIN, SUPER_ADMIN]
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200': { description: Litiges paginés., content: { application/json: { schema: { $ref: '#/components/schemas/PaginatedResponse' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Support]
+      summary: Ouvrir un litige
+      operationId: createDispute
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [orderId, reason]
+              properties:
+                orderId: { type: string, format: uuid }
+                reason: { type: string }
+      responses:
+        '201': { description: Litige ouvert., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+
+  # ============================= ANALYTICS =============================
+  /analytics/kpis:
+    get:
+      tags: [Analytics]
+      summary: KPIs plateforme
+      operationId: analyticsKpis
+      x-required-roles: [ADMIN, SUPER_ADMIN]
+      parameters:
+        - $ref: '#/components/parameters/DateFromParam'
+        - $ref: '#/components/parameters/DateToParam'
+      responses:
+        '200':
+          description: KPIs.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/KpiSummary'
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /analytics/dashboards/{dashboardId}:
+    get:
+      tags: [Analytics]
+      summary: Données d'un dashboard
+      operationId: analyticsDashboard
+      x-required-roles: [ADMIN, SUPER_ADMIN]
+      parameters:
+        - name: dashboardId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Données du dashboard., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /analytics/reports:
+    get:
+      tags: [Analytics]
+      summary: Rapports disponibles
+      operationId: analyticsReports
+      x-required-roles: [ADMIN, SUPER_ADMIN]
+      responses:
+        '200': { description: Rapports., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /analytics/exports:
+    post:
+      tags: [Analytics]
+      summary: Générer un export (CSV/XLSX)
+      operationId: analyticsExport
+      x-required-roles: [ADMIN, SUPER_ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [report, format]
+              properties:
+                report: { type: string, enum: [ORDERS, PAYMENTS, DRIVERS, GMV] }
+                format: { type: string, enum: [CSV, XLSX] }
+                dateFrom: { type: string, format: date-time }
+                dateTo: { type: string, format: date-time }
+      responses:
+        '202': { description: Export en cours de génération., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  # ============================= ADMIN =============================
+  /admin/users:
+    get:
+      tags: [Admin]
+      summary: Lister les utilisateurs
+      operationId: adminListUsers
+      x-required-roles: [ADMIN, SUPER_ADMIN]
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/SearchParam'
+        - name: role
+          in: query
+          schema: { $ref: '#/components/schemas/Role' }
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/UserStatus' }
+      responses:
+        '200':
+          description: Utilisateurs paginés.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/User'
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /admin/users/{userId}:
+    patch:
+      tags: [Admin]
+      summary: Modifier un utilisateur (rôles, statut)
+      operationId: adminUpdateUser
+      x-required-roles: [ADMIN, SUPER_ADMIN]
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                roles:
+                  type: array
+                  items: { $ref: '#/components/schemas/Role' }
+                status: { $ref: '#/components/schemas/UserStatus' }
+      responses:
+        '200':
+          description: Utilisateur mis à jour.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/User'
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /admin/users/{userId}/suspend:
+    post:
+      tags: [Admin]
+      summary: Suspendre un utilisateur
+      operationId: adminSuspendUser
+      x-required-roles: [ADMIN, SUPER_ADMIN]
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: { type: string }
+      responses:
+        '200': { description: Utilisateur suspendu., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /admin/orders:
+    get:
+      tags: [Admin]
+      summary: Lister toutes les commandes
+      operationId: adminListOrders
+      x-required-roles: [ADMIN, SUPER_ADMIN, SUPPORT_AGENT]
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/StatusFilterParam'
+        - $ref: '#/components/parameters/DateFromParam'
+        - $ref: '#/components/parameters/DateToParam'
+      responses:
+        '200':
+          description: Commandes paginées.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Order'
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /admin/payments:
+    get:
+      tags: [Admin]
+      summary: Lister tous les paiements
+      operationId: adminListPayments
+      x-required-roles: [ADMIN, SUPER_ADMIN]
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/StatusFilterParam'
+      responses:
+        '200':
+          description: Paiements paginés.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Payment'
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /admin/commissions:
+    get:
+      tags: [Admin]
+      summary: Grille des commissions
+      operationId: adminGetCommissions
+      x-required-roles: [ADMIN, SUPER_ADMIN]
+      responses:
+        '200':
+          description: Commissions.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/CommissionSettings'
+        '403': { $ref: '#/components/responses/Forbidden' }
+    patch:
+      tags: [Admin]
+      summary: Mettre à jour les commissions
+      operationId: adminUpdateCommissions
+      x-required-roles: [SUPER_ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommissionSettings'
+      responses:
+        '200':
+          description: Commissions mises à jour.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/CommissionSettings'
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /admin/settings:
+    get:
+      tags: [Admin]
+      summary: Paramètres système
+      operationId: adminGetSettings
+      x-required-roles: [ADMIN, SUPER_ADMIN]
+      responses:
+        '200': { description: Paramètres., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+    put:
+      tags: [Admin]
+      summary: Mettre à jour les paramètres
+      operationId: adminUpdateSettings
+      x-required-roles: [SUPER_ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200': { description: Paramètres mis à jour., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /admin/audit-logs:
+    get:
+      tags: [Admin]
+      summary: Journaux d'audit
+      operationId: adminAuditLogs
+      x-required-roles: [ADMIN, SUPER_ADMIN]
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+        - name: actorId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: action
+          in: query
+          schema: { type: string }
+        - $ref: '#/components/parameters/DateFromParam'
+        - $ref: '#/components/parameters/DateToParam'
+      responses:
+        '200':
+          description: Journaux paginés.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/AuditLog'
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /admin/roles:
+    get:
+      tags: [Admin]
+      summary: Lister les rôles et permissions
+      operationId: adminListRoles
+      x-required-roles: [SUPER_ADMIN]
+      responses:
+        '200': { description: Rôles., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Admin]
+      summary: Créer un rôle personnalisé
+      operationId: adminCreateRole
+      x-required-roles: [SUPER_ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, permissions]
+              properties:
+                name: { type: string }
+                permissions:
+                  type: array
+                  items: { type: string }
+      responses:
+        '201': { description: Rôle créé., content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  # ===================== ADMIN — DRIVERS (KYC) =====================
+  /admin/drivers:
+    get:
+      tags: [Drivers]
+      summary: File d'attente et liste des livreurs (admin)
+      operationId: adminListDrivers
+      x-required-roles: [ADMIN, SUPER_ADMIN]
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/SearchParam'
+        - name: kycStatus
+          in: query
+          description: Filtre par statut KYC (ex. PENDING pour la file de validation).
+          schema:
+            $ref: '#/components/schemas/KycStatus'
+      responses:
+        '200':
+          description: Livreurs paginés.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Driver'
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /admin/drivers/{driverId}:
+    get:
+      tags: [Drivers]
+      summary: Détail d'un livreur avec documents KYC (admin)
+      operationId: adminGetDriver
+      x-required-roles: [ADMIN, SUPER_ADMIN]
+      parameters:
+        - name: driverId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Livreur.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Driver'
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ============================= CATALOG =============================
+  /products:
+    get:
+      tags: [Customers]
+      summary: Catalogue produits (parcours client)
+      operationId: listProducts
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/SearchParam'
+      responses:
+        '200':
+          description: Produits paginés.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Product'
+        '401': { $ref: '#/components/responses/Unauthorized' }

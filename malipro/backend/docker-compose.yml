@@ -1,0 +1,52 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: novigo
+      POSTGRES_PASSWORD: novigo
+      POSTGRES_DB: novigo
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U novigo"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: novigo
+      MINIO_ROOT_PASSWORD: novigo-secret
+    ports: ["9000:9000", "9001:9001"]
+    volumes: [miniodata:/data]
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+
+  api:
+    build: .
+    depends_on:
+      db: { condition: service_healthy }
+      minio: { condition: service_started }
+      redis: { condition: service_started }
+    environment:
+      REDIS_URL: redis://redis:6379
+      DATABASE_URL: postgresql://novigo:novigo@db:5432/novigo?schema=public
+      JWT_ACCESS_SECRET: dev-access-secret
+      JWT_REFRESH_SECRET: dev-refresh-secret
+      PORT: "8080"
+      CORS_ORIGIN: http://localhost:3000
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: "9000"
+      MINIO_ACCESS_KEY: novigo
+      MINIO_SECRET_KEY: novigo-secret
+      MINIO_BUCKET: novigo
+      MINIO_PUBLIC_URL: http://localhost:9000
+    ports: ["8080:8080"]
+
+volumes:
+  pgdata:
+  miniodata:

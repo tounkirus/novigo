@@ -1,0 +1,11 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="NOVIGO">
+  <defs>
+    <linearGradient id="novigo-w" x1="64" y1="48" x2="448" y2="464" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#6D5DF2"/>
+      <stop offset="1" stop-color="#3F32B0"/>
+    </linearGradient>
+  </defs>
+  <rect x="16" y="16" width="480" height="480" rx="116" fill="url(#novigo-w)"/>
+  <path d="M150 356V156h44l118 132V156h44v200h-44L194 224v132z" fill="#fff"/>
+  <path d="M330 150h44v44" stroke="#FFC043" stroke-width="20" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+</svg>

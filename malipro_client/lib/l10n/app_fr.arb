@@ -1,0 +1,19 @@
+{
+  "@@locale": "fr",
+  "appName": "NOVIGO",
+  "login": "Connexion",
+  "phone": "Téléphone",
+  "sendCode": "Recevoir le code",
+  "otpTitle": "Vérification",
+  "verify": "Vérifier",
+  "catalog": "Catalogue",
+  "cart": "Panier",
+  "orders": "Commandes",
+  "wallet": "Portefeuille",
+  "account": "Compte",
+  "checkout": "Commander",
+  "payWithWallet": "Payer avec le wallet",
+  "total": "Total",
+  "emptyCart": "Votre panier est vide",
+  "addToCart": "Ajouter"
+}

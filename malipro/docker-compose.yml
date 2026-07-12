@@ -1,0 +1,136 @@
+name: novigo
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: novigo
+      POSTGRES_PASSWORD: novigo
+      POSTGRES_DB: novigo
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U novigo"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: novigo
+      MINIO_ROOT_PASSWORD: novigo-secret
+    ports: ["9000:9000", "9001:9001"]
+    volumes: [miniodata:/data]
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    ports: ["1025:1025", "8025:8025"]
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.57
+    ports: ["16686:16686", "4318:4318"]
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+
+  api:
+    build: ./backend
+    depends_on:
+      db: { condition: service_healthy }
+      minio: { condition: service_started }
+      redis: { condition: service_started }
+    environment:
+      DATABASE_URL: postgresql://novigo:novigo@db:5432/novigo?schema=public
+      REDIS_URL: redis://redis:6379
+      OTEL_ENABLED: "true"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+      OTEL_SERVICE_NAME: novigo-api
+      LOG_FORMAT: json
+      EMAIL_PROVIDER: smtp
+      SMTP_HOST: mailhog
+      SMTP_PORT: "1025"
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-dev-access-secret}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-dev-refresh-secret}
+      PORT: "8080"
+      CORS_ORIGIN: http://localhost:3000
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: "9000"
+      MINIO_ACCESS_KEY: novigo
+      MINIO_SECRET_KEY: novigo-secret
+      MINIO_BUCKET: novigo
+      MINIO_PUBLIC_URL: http://localhost:9000
+      # --- Mobile Money -------------------------------------------------------
+      # Secrets de webhook activés => signature HMAC exigée sur /payments/webhooks/:provider.
+      ORANGE_MONEY_WEBHOOK_SECRET: ${ORANGE_MONEY_WEBHOOK_SECRET:-dev-om-webhook-secret}
+      WAVE_WEBHOOK_SECRET: ${WAVE_WEBHOOK_SECRET:-dev-wave-webhook-secret}
+      PAYMENT_RETURN_URL: ${PAYMENT_RETURN_URL:-http://localhost:3000/payments/return}
+      PAYMENT_WEBHOOK_URL: ${PAYMENT_WEBHOOK_URL:-http://localhost:8080/api/v1/payments/webhooks/orange-money}
+      # Identifiants opérateurs réels : vides => repli sandbox (référence simulée).
+      # Renseignez-les pour activer le chemin réel OAuth + webpayment.
+      ORANGE_MONEY_CLIENT_ID: ${ORANGE_MONEY_CLIENT_ID:-}
+      ORANGE_MONEY_CLIENT_SECRET: ${ORANGE_MONEY_CLIENT_SECRET:-}
+      ORANGE_MONEY_BASE_URL: ${ORANGE_MONEY_BASE_URL:-}
+      WAVE_API_KEY: ${WAVE_API_KEY:-}
+      WAVE_BASE_URL: ${WAVE_BASE_URL:-}
+      # --- Notifications push -------------------------------------------------
+      # PUSH_PROVIDER: console (dev), fcm (Firebase Cloud Messaging) ou apns (iOS).
+      PUSH_PROVIDER: ${PUSH_PROVIDER:-console}
+      FCM_SERVER_KEY: ${FCM_SERVER_KEY:-}
+    ports: ["8080:8080"]
+
+  web:
+    build:
+      context: ./web
+      args:
+        # NEXT_PUBLIC_* est inliné au build ; le navigateur (hôte) joint l'API sur localhost:8080.
+        NEXT_PUBLIC_API_URL: http://localhost:8080/api/v1
+    depends_on: [api]
+    ports: ["3000:3000"]
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    depends_on: [api]
+    volumes:
+      - ./infra/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infra/monitoring/alert.rules.yml:/etc/prometheus/alert.rules.yml:ro
+      - promdata:/prometheus
+    ports: ["9090:9090"]
+
+  loki:
+    image: grafana/loki:3.1.1
+    command: -config.file=/etc/loki/loki-config.yml
+    volumes:
+      - ./infra/monitoring/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - lokidata:/loki
+    ports: ["3100:3100"]
+
+  promtail:
+    image: grafana/promtail:3.1.1
+    command: -config.file=/etc/promtail/promtail-config.yml
+    depends_on: [loki]
+    volumes:
+      - ./infra/monitoring/promtail-config.yml:/etc/promtail/promtail-config.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    depends_on: [prometheus, loki]
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./infra/monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafanadata:/var/lib/grafana
+    ports: ["3001:3000"]
+
+volumes:
+  pgdata:
+  miniodata:
+  promdata:
+  grafanadata:
+  lokidata:

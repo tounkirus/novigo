@@ -1,0 +1,41 @@
+# Mode DEMO — 100 % autonome (H2 en mémoire), aucune infra requise.
+# Permet de lancer l'API sans Docker : mvn spring-boot:run
+spring:
+  datasource:
+    url: jdbc:h2:mem:novigo;MODE=PostgreSQL;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        format_sql: true
+  flyway:
+    enabled: false
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+  data:
+    redis:
+      repositories:
+        enabled: false
+  cache:
+    type: simple   # cache mémoire (ConcurrentMap) — aucune infra Redis en démo
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.amqp.RabbitAutoConfiguration
+
+management:
+  health:
+    redis:
+      enabled: false
+    rabbit:
+      enabled: false
+    mail:
+      enabled: false
+
+novigo:
+  mode: demo

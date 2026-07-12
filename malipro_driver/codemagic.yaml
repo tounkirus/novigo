@@ -1,0 +1,94 @@
+# =============================================================================
+# NOVIGO Livreur — Build iOS (App Store / TestFlight) via Codemagic
+# -----------------------------------------------------------------------------
+# NOTE : EAS Build (Expo) ne supporte PAS Flutter. Codemagic compile Flutter
+# sur macOS dans le cloud (sans Mac). Doc récap : ../NOVIGO-iOS-BUILD.md
+# Prérequis Codemagic : intégration App Store Connect « NOVIGO_ASC_API_KEY »,
+# bundle « com.novigo.driver » enregistré Apple, groupe env « novigo ».
+# =============================================================================
+workflows:
+  ios-appstore:
+    name: NOVIGO Livreur — iOS App Store
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    integrations:
+      app_store_connect: NOVIGO_ASC_API_KEY
+    environment:
+      groups:
+        - novigo
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.novigo.driver
+      vars:
+        BUNDLE_ID: "com.novigo.driver"
+        # NOVIGO_API : URL publique du Gateway de prod (groupe « novigo ») ; NOVIGO_LIVE=true forcé au build
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+    scripts:
+      - name: Configurer la signature (profils App Store)
+        script: xcode-project use-profiles
+      - name: Récupérer les packages Flutter
+        script: flutter pub get
+      - name: Installer les pods
+        script: find . -name "Podfile" -execdir pod install \;
+      - name: Build IPA
+        script: |
+          flutter build ipa --release \
+            --build-number=$BUILD_NUMBER \
+            --dart-define=NOVIGO_LIVE=true \
+            --dart-define=NOVIGO_API="$NOVIGO_API" \
+            --export-options-plist=/Users/builder/export_options.plist
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+        submit_to_app_store: false
+
+  # ---------------------------------------------------------------------------
+  # Captures d'écran Play Store sur émulateur Android (integration_test)
+  # NB : l'émulateur cloud ne joint PAS ton localhost — API_URL doit pointer sur
+  # un backend démo PUBLIC (groupe env « novigo »). Sans backend joignable, seul
+  # l'écran de connexion est capturé (le harnais dégrade proprement).
+  # Récupère les PNG dans l'onglet « Artifacts » du build.
+  # ---------------------------------------------------------------------------
+  android-screenshots:
+    name: NOVIGO Livreur — Captures Android
+    instance_type: linux_x2
+    max_build_duration: 45
+    environment:
+      groups:
+        - novigo            # doit fournir API_URL (backend démo public)
+      vars:
+        DEMO_PHONE: "+22375000001"
+        DEMO_PASSWORD: "123456"
+        DEMO_OTP: "123456"
+      flutter: stable
+    scripts:
+      - name: Démarrer l'émulateur Android
+        script: |
+          set -e
+          SYS="system-images;android-34;google_apis;x86_64"
+          yes | sdkmanager --install "$SYS" "platform-tools" "emulator" >/dev/null
+          echo "no" | avdmanager create avd -n novigo -k "$SYS" --device "pixel_6" --force
+          nohup emulator -avd novigo -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect >/dev/null 2>&1 &
+          adb wait-for-device
+          adb shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 2; done'
+      - name: Récupérer les packages
+        script: flutter pub get
+      - name: Capturer les écrans
+        script: |
+          flutter drive \
+            --profile \
+            --driver=test_driver/screenshot_driver.dart \
+            --target=integration_test/screenshots_test.dart \
+            --dart-define=API_URL="$API_URL" \
+            --dart-define=DEMO_PHONE="$DEMO_PHONE" \
+            --dart-define=DEMO_PASSWORD="$DEMO_PASSWORD" \
+            --dart-define=DEMO_OTP="$DEMO_OTP" \
+            -d emulator-5554 || true
+    artifacts:
+      - screenshots/*.png

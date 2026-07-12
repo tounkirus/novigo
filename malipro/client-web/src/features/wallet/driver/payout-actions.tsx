@@ -1,0 +1,156 @@
+"use client";
+
+import * as React from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { ArrowUpFromLine, Zap } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input, Label } from "@/components/ui/input";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio";
+import { Switch } from "@/components/ui/switch";
+import {
+  Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter, SheetTrigger,
+} from "@/components/ui/sheet";
+import { useToast } from "@/components/ui/toast";
+import { api } from "@/mock/api";
+import type { WalletMethod } from "@/types/wallet";
+import { formatFcfa } from "@/lib/utils";
+
+const PAYOUT_METHODS: { value: WalletMethod; label: string; hint: string }[] = [
+  { value: "ORANGE_MONEY", label: "Orange Money", hint: "Réception instantanée" },
+  { value: "WAVE", label: "Wave", hint: "Réception instantanée · sans frais" },
+  { value: "BANK_TRANSFER", label: "Virement bancaire", hint: "Sous 48 h ouvrées" },
+];
+
+const PRESETS = [10000, 25000, 50000];
+
+/**
+ * Actions du portefeuille livreur : demande de retrait (Sheet + montant + méthode)
+ * et bascule « retrait automatique ». À placer dans les actions de la carte de solde.
+ */
+export function DriverPayoutActions({ balance }: { balance: number }) {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [open, setOpen] = React.useState(false);
+  const [amount, setAmount] = React.useState("");
+  const [method, setMethod] = React.useState<WalletMethod>("ORANGE_MONEY");
+  const [auto, setAuto] = React.useState(false);
+
+  const value = Number(amount);
+  const invalid = !Number.isFinite(value) || value <= 0 || value > balance;
+
+  const mutation = useMutation({
+    mutationFn: () => api.requestPayout(value),
+    onSuccess: (res) => {
+      const label = PAYOUT_METHODS.find((m) => m.value === method)?.label ?? method;
+      toast({
+        title: "Demande de retrait envoyée",
+        description: `${formatFcfa(value)} via ${label} · réf. ${res.ref}`,
+        tone: "success",
+      });
+      qc.invalidateQueries({ queryKey: ["driverWallet"] });
+      qc.invalidateQueries({ queryKey: ["driverWalletSummary"] });
+      qc.invalidateQueries({ queryKey: ["payoutRequests"] });
+      setOpen(false);
+      setAmount("");
+    },
+    onError: () =>
+      toast({ title: "Échec de la demande", description: "Veuillez réessayer dans un instant.", tone: "error" }),
+  });
+
+  function toggleAuto(next: boolean) {
+    setAuto(next);
+    toast({
+      title: next ? "Retrait automatique activé" : "Retrait automatique désactivé",
+      description: next
+        ? "Vos gains seront reversés automatiquement chaque semaine."
+        : "Vous devrez désormais demander vos retraits manuellement.",
+      tone: next ? "success" : "info",
+    });
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-3">
+      <Sheet open={open} onOpenChange={setOpen}>
+        <SheetTrigger asChild>
+          <Button variant="gold" size="sm">
+            <ArrowUpFromLine className="h-4 w-4" /> Demander un retrait
+          </Button>
+        </SheetTrigger>
+        <SheetContent side="right" className="gap-0">
+          <SheetHeader>
+            <SheetTitle>Demander un retrait</SheetTitle>
+            <SheetDescription>Solde disponible : {formatFcfa(balance)}</SheetDescription>
+          </SheetHeader>
+
+          <div className="flex-1 space-y-5 overflow-y-auto p-5">
+            <div className="space-y-2">
+              <Label htmlFor="payout-amount">Montant à retirer</Label>
+              <Input
+                id="payout-amount"
+                type="number"
+                inputMode="numeric"
+                min={0}
+                placeholder="0"
+                suffix={<span className="text-[13px] font-medium text-muted">FCFA</span>}
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+              />
+              <div className="flex flex-wrap gap-2">
+                {PRESETS.filter((p) => p <= balance).map((p) => (
+                  <Button key={p} type="button" variant="subtle" size="sm" onClick={() => setAmount(String(p))}>
+                    {formatFcfa(p)}
+                  </Button>
+                ))}
+                <Button type="button" variant="subtle" size="sm" onClick={() => setAmount(String(balance))}>
+                  Tout retirer
+                </Button>
+              </div>
+              {amount !== "" && invalid && (
+                <p className="text-[12px] text-error">
+                  Saisissez un montant valide, inférieur ou égal à votre solde disponible.
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <Label>Méthode de versement</Label>
+              <RadioGroup value={method} onValueChange={(v) => setMethod(v as WalletMethod)}>
+                {PAYOUT_METHODS.map((m) => (
+                  <label
+                    key={m.value}
+                    htmlFor={`payout-method-${m.value}`}
+                    className="flex cursor-pointer items-center gap-3 rounded-xl border border-line bg-surface p-3 transition hover:bg-shell"
+                  >
+                    <RadioGroupItem id={`payout-method-${m.value}`} value={m.value} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm font-semibold text-ink">{m.label}</span>
+                      <span className="block text-[12px] text-muted">{m.hint}</span>
+                    </span>
+                  </label>
+                ))}
+              </RadioGroup>
+            </div>
+          </div>
+
+          <SheetFooter>
+            <Button
+              block
+              variant="primary"
+              loading={mutation.isPending}
+              disabled={invalid}
+              onClick={() => mutation.mutate()}
+            >
+              Confirmer le retrait
+            </Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
+
+      <label className="flex cursor-pointer items-center gap-2 rounded-full bg-white/15 px-3 py-1.5 text-[13px] font-medium text-white">
+        <Zap className="h-4 w-4" />
+        Retrait auto
+        <Switch checked={auto} onCheckedChange={toggleAuto} aria-label="Activer le retrait automatique" />
+      </label>
+    </div>
+  );
+}

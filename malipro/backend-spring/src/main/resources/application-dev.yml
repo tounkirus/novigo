@@ -1,0 +1,35 @@
+# Mode DEV — infra locale via docker-compose (ports décalés pour cohabiter avec le stack NestJS).
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5433/novigo}
+    username: ${DB_USER:novigo}
+    password: ${DB_PASSWORD:novigo}
+  jpa:
+    hibernate:
+      ddl-auto: none      # Flyway est la source de vérité du schéma
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+  cache:
+    type: redis
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6380}
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:novigo}
+    password: ${RABBITMQ_PASSWORD:novigo}
+
+management:
+  health:
+    rabbit:
+      enabled: false
+
+novigo:
+  mode: dev

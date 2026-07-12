@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "novigo.fullname" . }}-config
+  labels:
+    {{- include "novigo.labels" . | nindent 4 }}
+data:
+  PORT: {{ .Values.api.port | quote }}
+  CORS_ORIGIN: {{ .Values.config.corsOrigin | quote }}
+  OTP_DEV_ECHO: {{ .Values.config.otpDevEcho | quote }}
+  MINIO_ENDPOINT: {{ printf "%s-minio" (include "novigo.fullname" .) | quote }}
+  MINIO_PORT: "9000"
+  MINIO_BUCKET: {{ .Values.minio.bucket | quote }}
+  MINIO_PUBLIC_URL: {{ .Values.minio.publicUrl | quote }}
+  REDIS_URL: {{ .Values.redis.url | quote }}
+  SMS_PROVIDER: {{ .Values.integrations.smsProvider | quote }}
+  PUSH_PROVIDER: {{ .Values.integrations.pushProvider | quote }}
+  OTEL_ENABLED: {{ .Values.observability.tracingEnabled | quote }}
+  OTEL_EXPORTER_OTLP_ENDPOINT: {{ .Values.observability.otlpEndpoint | quote }}
+  OTEL_SERVICE_NAME: "novigo-api"
+  LOG_FORMAT: "json"

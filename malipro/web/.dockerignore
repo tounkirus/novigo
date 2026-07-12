@@ -1,0 +1,13 @@
+node_modules
+.next
+out
+.git
+.github
+tests
+playwright-report
+test-results
+monitoring
+novigo-openapi.yaml
+*.md
+.env
+.env.local

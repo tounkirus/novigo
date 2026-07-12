@@ -1,0 +1,30 @@
+{{- if .Values.migrations.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "novigo.fullname" . }}-migrate
+  labels:
+    {{- include "novigo.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        {{- include "novigo.labels" . | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: "{{ .Values.image.api.repository }}:{{ .Values.image.api.tag }}"
+          # Applique les migrations versionnées si présentes, sinon pousse le schéma.
+          command: ["sh", "-c", "npx prisma migrate deploy || npx prisma db push --accept-data-loss"]
+          envFrom:
+            - configMapRef:
+                name: {{ include "novigo.fullname" . }}-config
+            - secretRef:
+                name: {{ include "novigo.fullname" . }}-secrets
+{{- end }}

@@ -1,0 +1,19 @@
+NOVIGO déployé ✅
+
+1. Vérifiez les pods :
+   kubectl get pods -l app.kubernetes.io/instance={{ .Release.Name }}
+
+{{- if .Values.ingress.enabled }}
+2. Accès via l'Ingress : http{{ if .Values.ingress.tls }}s{{ end }}://{{ .Values.ingress.host }}
+   - Web  : /
+   - API  : /api/v1
+   - WS   : /realtime
+{{- else }}
+2. Ingress désactivé — utilisez un port-forward :
+   kubectl port-forward svc/{{ include "novigo.fullname" . }}-web 3000:3000
+{{- end }}
+
+⚠️  Renseignez de vrais secrets en production :
+   helm upgrade --install novigo ./novigo-chart \
+     --set secrets.jwtAccessSecret=... --set secrets.jwtRefreshSecret=... \
+     --set secrets.postgresPassword=... --set secrets.minioRootPassword=...

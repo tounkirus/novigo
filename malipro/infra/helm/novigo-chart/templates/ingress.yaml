@@ -1,0 +1,44 @@
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "novigo.fullname" . }}
+  labels:
+    {{- include "novigo.labels" . | nindent 4 }}
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- if .Values.ingress.tls }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.host | quote }}
+      secretName: {{ include "novigo.fullname" . }}-tls
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "novigo.fullname" . }}-api
+                port:
+                  number: 8080
+          - path: /realtime
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "novigo.fullname" . }}-api
+                port:
+                  number: 8080
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "novigo.fullname" . }}-web
+                port:
+                  number: 3000
+{{- end }}

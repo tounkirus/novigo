@@ -1,0 +1,31 @@
+# Mode PRÉPRODUCTION — infra dédiée, secrets injectés par l'environnement.
+spring:
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USER}
+    password: ${DB_PASSWORD}
+  jpa:
+    hibernate:
+      ddl-auto: none      # Flyway est la source de vérité du schéma
+    show-sql: false
+  flyway:
+    enabled: true
+  cache:
+    type: redis
+  data:
+    redis:
+      host: ${REDIS_HOST:redis}
+      port: ${REDIS_PORT:6379}
+  rabbitmq:
+    host: ${RABBITMQ_HOST:rabbitmq}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:novigo}
+    password: ${RABBITMQ_PASSWORD}
+
+management:
+  endpoint:
+    health:
+      show-details: when_authorized
+
+novigo:
+  mode: preprod

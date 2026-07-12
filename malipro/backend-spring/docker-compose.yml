@@ -1,0 +1,63 @@
+# NOVIGO — stack backend Spring Boot (isolé du stack NestJS existant : ports décalés).
+name: novigo-spring
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: novigo
+      POSTGRES_PASSWORD: novigo
+      POSTGRES_DB: novigo
+    ports: ["5433:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U novigo"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6380:6379"]
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: novigo
+      RABBITMQ_DEFAULT_PASS: novigo
+    ports: ["5672:5672", "15672:15672"]
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: novigo
+      MINIO_ROOT_PASSWORD: novigo-secret
+    ports: ["9002:9000", "9003:9001"]
+    volumes: [miniodata:/data]
+
+  api:
+    build: .
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_started }
+      rabbitmq: { condition: service_started }
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      DB_URL: jdbc:postgresql://db:5432/novigo
+      DB_USER: novigo
+      DB_PASSWORD: novigo
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: "5672"
+      RABBITMQ_USER: novigo
+      RABBITMQ_PASSWORD: novigo
+      CORS_ORIGINS: http://localhost:5173,http://localhost:3000
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-dev-access-secret-change-me-32bytes-minimum-length-ok}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-dev-refresh-secret-change-me-32bytes-minimum-length-ok}
+    ports: ["8081:8081"]
+
+volumes:
+  pgdata:
+  miniodata:

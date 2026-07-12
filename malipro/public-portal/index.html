@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>NOVIGO — Suivi de commande</title>
+<style>
+  /* NOVIGO — charte officielle. Jetons en variables : le mode sombre bascule
+     automatiquement selon la préférence système (prefers-color-scheme). */
+  :root {
+    --emeraude: #0D7A5F;
+    --emeraude-rgb: 13 122 95;
+    --emeraude-800: #0A5C47;
+    --or: #C9A84C;
+    --or-rgb: 201 168 76;
+    --or-dark: #A98A34;
+    --ink: #1E293B;
+    --paper: #F7F8FC;
+    --card: #FFFFFF;
+    --muted: #64748B;
+    --faint: #94A3B8;
+    --line: #E2E8F0;
+    --danger: #EF4444;
+    --danger-bg: #FEECEC;
+    --danger-line: #F7CFCF;
+    --radius: 16px;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --emeraude: #16A37F;
+      --emeraude-rgb: 22 163 127;
+      --ink: #F1F5F9;
+      --paper: #0F172A;
+      --card: #1E293B;
+      --muted: #94A3B8;
+      --faint: #64748B;
+      --line: #334155;
+      --danger: #F87171;
+      --danger-bg: #3A1D1D;
+      --danger-line: #5B2A2A;
+      color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    font-family: "Inter", ui-sans-serif, system-ui, "SF Pro Display", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: var(--ink);
+    background:
+      radial-gradient(1200px 500px at 80% -10%, rgb(var(--emeraude-rgb) / .10), transparent 60%),
+      var(--paper);
+    min-height: 100vh;
+    line-height: 1.5;
+  }
+  .wrap { max-width: 680px; margin: 0 auto; padding: 24px 20px 64px; }
+
+  header.brand { display: flex; align-items: baseline; gap: 12px; padding: 8px 0 28px; }
+  .logo {
+    font-weight: 800; font-size: 22px; letter-spacing: -.02em;
+    color: var(--emeraude);
+  }
+  .logo b { color: var(--or); }
+  .tagline { font-size: 12px; color: var(--muted); letter-spacing: .12em; text-transform: uppercase; }
+
+  .eyebrow { font-size: 12px; letter-spacing: .16em; text-transform: uppercase; color: var(--or); font-weight: 700; margin: 0 0 8px; }
+  h1 { font-size: clamp(28px, 6vw, 40px); line-height: 1.05; letter-spacing: -.02em; margin: 0 0 10px; }
+  .lede { color: var(--muted); margin: 0 0 24px; max-width: 46ch; }
+
+  form.search { display: flex; gap: 10px; margin-bottom: 8px; }
+  .field { position: relative; flex: 1; }
+  input[type=text] {
+    width: 100%; padding: 15px 16px; font-size: 16px; letter-spacing: .18em; text-transform: uppercase;
+    font-variant-numeric: tabular-nums;
+    border: 1.5px solid var(--line); border-radius: 12px; background: var(--card); color: var(--ink);
+    transition: border-color .15s ease, box-shadow .15s ease;
+  }
+  input[type=text]::placeholder { letter-spacing: .04em; text-transform: none; color: var(--faint); }
+  input[type=text]:focus { outline: none; border-color: var(--emeraude); box-shadow: 0 0 0 4px rgb(var(--emeraude-rgb) / .14); }
+  button.go {
+    padding: 15px 22px; font-size: 15px; font-weight: 700; color: #fff; cursor: pointer;
+    background: var(--emeraude); border: none; border-radius: 12px;
+    transition: background .15s ease, transform .05s ease;
+  }
+  button.go:hover { background: var(--emeraude-800); }
+  button.go:active { transform: translateY(1px); }
+  button.go:focus-visible { outline: 3px solid var(--or); outline-offset: 2px; }
+  .hint { font-size: 12.5px; color: var(--muted); margin: 2px 2px 0; }
+
+  .msg { margin-top: 22px; padding: 14px 16px; border-radius: 12px; font-size: 14px; display: none; }
+  .msg.error { display: block; background: var(--danger-bg); color: var(--danger); border: 1px solid var(--danger-line); }
+
+  /* ---- Résultat ---- */
+  .result { display: none; margin-top: 26px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+  .result.show { display: block; animation: rise .35s ease both; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+  .rhead { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 18px 20px; border-bottom: 1px solid var(--line); }
+  .rref { font-size: 12px; color: var(--muted); letter-spacing: .04em; }
+  .rref strong { display: block; color: var(--ink); font-size: 16px; letter-spacing: .02em; font-variant-numeric: tabular-nums; }
+  .badge { font-size: 12px; font-weight: 700; padding: 6px 12px; border-radius: 999px; white-space: nowrap; }
+  .badge.active { background: rgb(var(--emeraude-rgb) / .12); color: var(--emeraude); }
+  .badge.done { background: rgb(var(--or-rgb) / .16); color: var(--or-dark); }
+  .badge.cancel { background: var(--danger-bg); color: var(--danger); }
+
+  /* ---- Signature : la piste de livraison ---- */
+  .track { padding: 26px 20px 8px; }
+  .steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 22px; }
+  .step { position: relative; display: grid; grid-template-columns: 34px 1fr; gap: 14px; align-items: start; }
+  .rail { position: relative; width: 34px; display: flex; justify-content: center; }
+  .dot { width: 18px; height: 18px; border-radius: 50%; border: 2.5px solid var(--line); background: var(--card); margin-top: 2px; z-index: 1; transition: all .3s ease; }
+  .seg { position: absolute; top: 22px; left: 50%; transform: translateX(-50%); width: 2.5px; height: calc(100% + 22px); background: var(--line); }
+  .step:last-child .seg { display: none; }
+  .step.reached .dot { border-color: var(--emeraude); background: var(--emeraude); box-shadow: 0 0 0 4px rgb(var(--emeraude-rgb) / .12); }
+  .step.reached .seg { background: var(--emeraude); }
+  .step.current .dot { border-color: var(--emeraude); background: var(--card); }
+  .step.current .dot::after {
+    content: ""; position: absolute; width: 18px; height: 18px; border-radius: 50%;
+    background: var(--emeraude); opacity: .55; animation: pulse 1.6s ease-out infinite;
+  }
+  @keyframes pulse { 0% { transform: scale(1); opacity: .5; } 70% { transform: scale(2.1); opacity: 0; } 100% { opacity: 0; } }
+  .step .label { font-weight: 700; font-size: 15px; }
+  .step .sub { font-size: 13px; color: var(--muted); }
+  .step:not(.reached):not(.current) .label { color: var(--faint); }
+
+  .meta { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--line); }
+  .meta div { padding: 16px 18px; text-align: center; }
+  .meta div + div { border-left: 1px solid var(--line); }
+  .meta .k { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+  .meta .v { font-weight: 800; font-size: 16px; margin-top: 4px; font-variant-numeric: tabular-nums; }
+
+  footer.note { margin-top: 28px; font-size: 12px; color: var(--muted); text-align: center; }
+  .skl { color: var(--faint); }
+
+  @media (max-width: 420px) { .meta { grid-template-columns: 1fr 1fr; } .meta div:nth-child(3) { border-left: none; border-top: 1px solid var(--line); grid-column: 1 / -1; } }
+  @media (prefers-reduced-motion: reduce) { *, *::after { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="brand">
+      <span class="logo">MALI<b>PRO</b></span>
+      <span class="tagline">Suivi de commande</span>
+    </header>
+
+    <p class="eyebrow">Où est ma commande&nbsp;?</p>
+    <h1>Suivez votre commande en direct</h1>
+    <p class="lede">Entrez le code de suivi reçu par SMS après votre commande. Pas besoin de compte.</p>
+
+    <form class="search" id="form" autocomplete="off">
+      <div class="field">
+        <input id="code" type="text" inputmode="latin" maxlength="10" placeholder="Ex : DEMO123456"
+               aria-label="Code de suivi" />
+      </div>
+      <button class="go" type="submit">Suivre</button>
+    </form>
+    <p class="hint">Essayez le code de démonstration <strong>DEMO123456</strong>.</p>
+
+    <div class="msg error" id="error" role="alert"></div>
+
+    <section class="result" id="result" aria-live="polite">
+      <div class="rhead">
+        <div class="rref">Commande<strong id="ref">—</strong></div>
+        <span class="badge" id="badge">—</span>
+      </div>
+      <div class="track">
+        <ul class="steps" id="steps"></ul>
+      </div>
+      <div class="meta">
+        <div><div class="k">Articles</div><div class="v" id="items">—</div></div>
+        <div><div class="k">Total</div><div class="v" id="total">—</div></div>
+        <div><div class="k">Livreur</div><div class="v" id="driver">—</div></div>
+      </div>
+    </section>
+
+    <footer class="note">NOVIGO — la super app du Mali · Le suivi ne divulgue aucune donnée personnelle.</footer>
+  </div>
+
+<script>
+  // Base API : configurable (window.NOVIGO_API) ; sinon même origine.
+  var API_BASE = (window.NOVIGO_API || "/api/v1");
+
+  var STEPS = [
+    { key: "confirmee",   label: "Commande confirmée", sub: "Nous avons bien reçu votre commande." },
+    { key: "preparation", label: "En préparation",     sub: "Le marchand prépare votre commande." },
+    { key: "route",       label: "En route",           sub: "Votre livreur arrive." },
+    { key: "livree",      label: "Livrée",             sub: "Bon appétit&nbsp;!" }
+  ];
+  // Mappe le statut backend vers l'index d'étape.
+  var STATUS_TO_STEP = {
+    PENDING: 0, CONFIRMED: 0, ACCEPTED: 0,
+    PREPARING: 1, READY: 1,
+    ASSIGNED: 2, PICKED_UP: 2, IN_TRANSIT: 2, OUT_FOR_DELIVERY: 2,
+    DELIVERED: 3, COMPLETED: 3
+  };
+  var BADGE_LABEL = {
+    PENDING: "En attente", CONFIRMED: "Confirmée", PREPARING: "En préparation",
+    ASSIGNED: "En route", IN_TRANSIT: "En route", DELIVERED: "Livrée", CANCELLED: "Annulée"
+  };
+
+  function fcfa(n) { return (n || 0).toLocaleString("fr-FR").replace(/\u202f|,/g, " ") + " FCFA"; }
+
+  function renderSteps(stepIndex, cancelled) {
+    var ul = document.getElementById("steps");
+    ul.innerHTML = "";
+    STEPS.forEach(function (s, i) {
+      var li = document.createElement("li");
+      li.className = "step" + (i < stepIndex ? " reached" : "") + (i === stepIndex && !cancelled ? " current reached" : "");
+      li.innerHTML =
+        '<div class="rail"><span class="seg"></span><span class="dot"></span></div>' +
+        '<div><div class="label">' + s.label + '</div><div class="sub">' + s.sub + '</div></div>';
+      ul.appendChild(li);
+    });
+  }
+
+  function show(data) {
+    document.getElementById("error").style.display = "none";
+    var res = document.getElementById("result");
+    var status = data.status || "PENDING";
+    var cancelled = status === "CANCELLED";
+    var idx = cancelled ? -1 : (STATUS_TO_STEP[status] != null ? STATUS_TO_STEP[status] : 0);
+
+    document.getElementById("ref").textContent = data.reference || "—";
+    var badge = document.getElementById("badge");
+    badge.textContent = BADGE_LABEL[status] || status;
+    badge.className = "badge " + (cancelled ? "cancel" : (idx >= 3 ? "done" : "active"));
+
+    document.getElementById("items").textContent = (data.itemsCount != null ? data.itemsCount : "—");
+    document.getElementById("total").textContent = data.total ? fcfa(data.total.amount) : "—";
+    var driver = data.delivery && data.delivery.driverName ? data.delivery.driverName : "À assigner";
+    document.getElementById("driver").textContent = driver;
+
+    renderSteps(idx, cancelled);
+    res.classList.add("show");
+  }
+
+  function fail(message) {
+    document.getElementById("result").classList.remove("show");
+    var e = document.getElementById("error");
+    e.textContent = message;
+    e.style.display = "block";
+  }
+
+  // Jeu de démonstration (hors-ligne).
+  function demo(code) {
+    if (code !== "DEMO123456") return null;
+    return {
+      reference: "MLP-2026-000842", status: "IN_TRANSIT", type: "FOOD",
+      itemsCount: 3, total: { amount: 9000, currency: "XOF" },
+      delivery: { status: "IN_TRANSIT", driverName: "Modibo" }
+    };
+  }
+
+  document.getElementById("form").addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    var code = (document.getElementById("code").value || "").trim().toUpperCase();
+    if (!code) { fail("Entrez d'abord un code de suivi."); return; }
+
+    var mock = demo(code);
+    if (mock) { show(mock); return; }
+
+    var btn = document.querySelector(".go");
+    btn.textContent = "…"; btn.disabled = true;
+    fetch(API_BASE + "/public/orders/track/" + encodeURIComponent(code))
+      .then(function (r) {
+        if (!r.ok) throw new Error("not found");
+        return r.json();
+      })
+      .then(function (payload) {
+        // L'API renvoie une enveloppe { success, data } ou l'objet directement.
+        show(payload && payload.data ? payload.data : payload);
+      })
+      .catch(function () {
+        fail("Aucune commande pour ce code. Vérifiez le code et réessayez.");
+      })
+      .finally(function () { btn.textContent = "Suivre"; btn.disabled = false; });
+  });
+</script>
+</body>
+</html>
