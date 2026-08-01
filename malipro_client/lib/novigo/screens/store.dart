@@ -1,139 +1,262 @@
 import 'package:flutter/material.dart';
-import '../theme.dart';
-import '../models.dart';
+
 import '../cart.dart';
-import '../widgets.dart';
+import '../data/catalog_model.dart';
+import '../favorites.dart';
+import '../models.dart';
+import '../ui/ui.dart';
+import '../widgets.dart' show Img, Pill, QtyStepper, Stars;
 import 'cart_screen.dart';
 
-class StoreScreen extends StatelessWidget {
+/// Fiche boutique — deux sections : l'identité du commerce, puis son menu.
+///
+/// Les listes du catalogue ne transportent que les résumés : le menu complet
+/// est chargé ici, à l'ouverture (43 000 produits en base, on ne rapatrie que
+/// ceux de la boutique consultée).
+class StoreScreen extends StatefulWidget {
   final Store store;
   const StoreScreen({super.key, required this.store});
 
+  @override
+  State<StoreScreen> createState() => _StoreScreenState();
+}
+
+class _StoreScreenState extends State<StoreScreen> {
+  late Store store = widget.store;
+  bool _loadingMenu = false;
+  Object? _menuError;
+
+  @override
+  void initState() {
+    super.initState();
+    if (store.products.isEmpty) _loadMenu();
+  }
+
+  Future<void> _loadMenu() async {
+    setState(() {
+      _loadingMenu = true;
+      _menuError = null;
+    });
+    try {
+      final full = await catalog.withProducts(store);
+      if (!mounted) return;
+      setState(() => store = full);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _menuError = e);
+    } finally {
+      if (mounted) setState(() => _loadingMenu = false);
+    }
+  }
+
   List<String> get _sections => store.products.map((p) => p.section).toSet().toList();
+
+  void _openProduct(Product p) => showNovigoSheet(
+        context,
+        builder: (_) => _ProductSheet(product: p, store: store),
+      );
 
   @override
   Widget build(BuildContext context) {
+    final gutter = Rs.of(context).gutter;
     return Scaffold(
       body: CustomScrollView(slivers: [
-        SliverAppBar(
-          expandedHeight: 230,
-          pinned: true,
-          backgroundColor: NC.shell,
-          leading: _circleBtn(context, Icons.arrow_back, () => Navigator.pop(context)),
-          actions: [
-            _circleBtn(context, Icons.favorite_border, () {}),
-            _circleBtn(context, Icons.share_outlined, () {}),
-            const SizedBox(width: 6),
-          ],
-          flexibleSpace: FlexibleSpaceBar(
-            background: Stack(fit: StackFit.expand, children: [
-              Img(store.image, fit: BoxFit.cover),
-              const DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [Colors.transparent, Color(0xCC0F1117), NC.shell],
-                    stops: [0.35, 0.8, 1.0],
-                  ),
-                ),
-              ),
-            ]),
-          ),
+        _appBar(context),
+        SliverPadding(
+          padding: EdgeInsets.fromLTRB(gutter, Sp.xs, gutter, 0),
+          sliver: SliverToBoxAdapter(child: _identity()),
         ),
-        SliverToBoxAdapter(child: _header()),
-        SliverToBoxAdapter(child: _stats()),
-        ..._menuSlivers(context),
-        const SliverToBoxAdapter(child: SizedBox(height: 100)),
+        SliverPadding(
+          padding: EdgeInsets.fromLTRB(gutter, Sp.lg, gutter, 0),
+          sliver: SliverToBoxAdapter(child: _facts()),
+        ),
+        ..._menuSlivers(gutter),
+        const SliverToBoxAdapter(child: SizedBox(height: 110)),
       ]),
       bottomNavigationBar: _cartBar(context),
     );
   }
 
-  Widget _circleBtn(BuildContext c, IconData i, VoidCallback onTap) => Padding(
-        padding: const EdgeInsets.all(6),
-        child: GestureDetector(
-          onTap: onTap,
-          child: Container(
-            width: 38,
-            decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.45), shape: BoxShape.circle),
-            child: Icon(i, color: Colors.white, size: 20),
+  Widget _appBar(BuildContext context) => SliverAppBar(
+        expandedHeight: 230,
+        pinned: true,
+        backgroundColor: NC.shell,
+        leading: _glassButton(Icons.arrow_back, 'Retour', () => Navigator.pop(context)),
+        actions: [
+          ListenableBuilder(
+            listenable: favorites,
+            builder: (_, __) {
+              final on = favorites.contains(store.id);
+              return _glassButton(
+                on ? Icons.favorite : Icons.favorite_border,
+                on ? 'Retirer des favoris' : 'Ajouter aux favoris',
+                () => favorites.toggle(store.id),
+                color: on ? NC.brand : Colors.white,
+              );
+            },
           ),
+          const SizedBox(width: Sp.sm),
+        ],
+        flexibleSpace: FlexibleSpaceBar(
+          background: Stack(fit: StackFit.expand, children: [
+            // Arrivée du Hero lancé par la carte de la liste.
+            Hero(tag: 'store-cover-${store.id}', child: Img(store.image, fit: BoxFit.cover)),
+            const DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Colors.transparent, Color(0xCC0F1117), NC.shell],
+                  stops: [0.35, 0.8, 1.0],
+                ),
+              ),
+            ),
+          ]),
         ),
       );
 
-  Widget _header() => Padding(
-        padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(store.name, style: T.h1),
-          const SizedBox(height: 6),
-          Text(store.cuisine, style: T.muted),
-          const SizedBox(height: 10),
-          Row(children: [
+  Widget _glassButton(IconData icon, String tooltip, VoidCallback onTap, {Color? color}) => Padding(
+        padding: const EdgeInsets.all(Sp.xs + 2),
+        child: NovigoIconButton(
+          icon: icon,
+          tooltip: tooltip,
+          onPressed: onTap,
+          size: 38,
+          background: Colors.black.withValues(alpha: 0.45),
+          foreground: color ?? Colors.white,
+        ),
+      );
+
+  /// Section 1 — qui est ce commerce.
+  Widget _identity() => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(store.name, style: T.h1, maxLines: 2, overflow: TextOverflow.ellipsis),
+        const SizedBox(height: Sp.xs + 2),
+        Text(store.cuisine, style: T.muted),
+        const SizedBox(height: Sp.md),
+        // Wrap plutôt que Row : trois pastilles sur un écran étroit débordaient.
+        Wrap(
+          spacing: Sp.sm,
+          runSpacing: Sp.sm,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
             Stars(store.rating, reviews: store.reviews),
-            const SizedBox(width: 12),
-            if (store.verified) const Pill('Vérifié', color: NC.success, bg: Color(0x1F2ECC71), icon: Icons.verified_rounded),
-            const SizedBox(width: 8),
+            if (store.verified)
+              const Pill('Vérifié',
+                  color: NC.success, bg: Color(0x1F2ECC71), icon: Icons.verified_rounded),
             Pill(store.district, color: NC.muted, bg: NC.surface, icon: Icons.place_outlined),
-          ]),
-        ]),
-      );
-
-  Widget _stats() => Padding(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-        child: Row(children: [
-          _stat(Icons.access_time_rounded, '${store.etaMin} min', 'Livraison'),
-          _stat(Icons.pedal_bike, store.freeDelivery ? 'Gratuit' : fcfa(store.deliveryFee), 'Frais'),
-          _stat(Icons.place_outlined, '${store.distanceKm} km', 'Distance'),
-        ]),
-      );
-
-  Widget _stat(IconData i, String v, String l) => Expanded(
-        child: Container(
-          margin: const EdgeInsets.symmetric(horizontal: 4),
-          padding: const EdgeInsets.symmetric(vertical: 14),
-          decoration: cardDeco(radius: 16),
-          child: Column(children: [
-            Icon(i, color: NC.brand, size: 20),
-            const SizedBox(height: 6),
-            Text(v, style: const TextStyle(fontWeight: FontWeight.w800, color: NC.ink, fontSize: 15)),
-            Text(l, style: const TextStyle(color: NC.faint, fontSize: 12)),
-          ]),
+          ],
         ),
+      ]);
+
+  /// Bandeau d'infos pratiques : un seul bloc segmenté plutôt que trois cartes
+  /// détachées, ce qui allège la page avant le menu.
+  Widget _facts() => NovigoCard(
+        padding: const EdgeInsets.symmetric(vertical: Sp.md + 2),
+        child: Row(children: [
+          _fact(Icons.access_time_rounded, '${store.etaMin} min', 'Livraison'),
+          _factDivider(),
+          _fact(Icons.pedal_bike, store.freeDelivery ? 'Offerte' : fcfa(store.deliveryFee), 'Frais',
+              accent: store.freeDelivery),
+          _factDivider(),
+          _fact(Icons.place_outlined, '${store.distanceKm.toStringAsFixed(1)} km', 'Distance'),
+        ]),
       );
 
-  List<Widget> _menuSlivers(BuildContext context) {
+  Widget _factDivider() => Container(width: 1, height: 34, color: NC.hairline);
+
+  Widget _fact(IconData i, String v, String l, {bool accent = false}) => Expanded(
+        child: Column(children: [
+          Icon(i, color: accent ? NC.success : NC.brand, size: 19),
+          const SizedBox(height: Sp.xs + 2),
+          Text(v,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  color: accent ? NC.success : NC.ink,
+                  fontSize: 14.5)),
+          const SizedBox(height: 2),
+          Text(l, style: const TextStyle(color: NC.faint, fontSize: 11.5)),
+        ]),
+      );
+
+  /// Section 2 — le menu, groupé par rayon.
+  List<Widget> _menuSlivers(double gutter) {
+    if (_loadingMenu && store.products.isEmpty) {
+      return [
+        SliverPadding(
+          padding: EdgeInsets.fromLTRB(gutter, Sp.section, gutter, 0),
+          sliver: const SliverToBoxAdapter(child: _MenuSkeleton()),
+        ),
+      ];
+    }
+    if (store.products.isEmpty) {
+      return [
+        SliverToBoxAdapter(
+          child: _menuError != null
+              ? NovigoEmptyState.error(
+                  message: 'Le menu n\'a pas pu être chargé.',
+                  onAction: _loadMenu,
+                )
+              : const NovigoEmptyState.empty(
+                  icon: Icons.restaurant_menu_rounded,
+                  title: 'Menu indisponible',
+                  message: 'Ce commerce n\'a pas encore publié ses produits.',
+                ),
+        ),
+      ];
+    }
+
     final grid = store.kind != 'repas';
+    final columns = Rs.of(context).productColumns;
     final out = <Widget>[];
     for (final section in _sections) {
       final items = store.products.where((p) => p.section == section).toList();
       out.add(SliverPadding(
-        padding: const EdgeInsets.fromLTRB(16, 18, 16, 8),
-        sliver: SliverToBoxAdapter(child: Text(section, style: T.h2)),
+        padding: EdgeInsets.fromLTRB(gutter, Sp.xl + 2, gutter, Sp.md - 2),
+        sliver: SliverToBoxAdapter(
+          child: Row(children: [
+            Text(section, style: T.h2),
+            const SizedBox(width: Sp.sm + 2),
+            // Filet qui prolonge le titre : structure les longues cartes sans
+            // ajouter de bloc supplémentaire.
+            Expanded(child: Container(height: 1, color: NC.hairline)),
+            const SizedBox(width: Sp.sm + 2),
+            Text('${items.length}', style: T.overline),
+          ]),
+        ),
       ));
       if (grid) {
         out.add(SliverPadding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
+          padding: EdgeInsets.symmetric(horizontal: gutter),
           sliver: SliverGrid(
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              mainAxisSpacing: 12,
-              crossAxisSpacing: 12,
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: columns,
+              mainAxisSpacing: Sp.md,
+              crossAxisSpacing: Sp.md,
               childAspectRatio: 0.74,
             ),
             delegate: SliverChildBuilderDelegate(
-              (_, i) => _ProductTile(product: items[i], store: store),
+              (_, i) => NovigoProductCard(
+                product: items[i],
+                store: store,
+                onTap: () => _openProduct(items[i]),
+              ),
               childCount: items.length,
             ),
           ),
         ));
       } else {
         out.add(SliverPadding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
+          padding: EdgeInsets.symmetric(horizontal: gutter),
           sliver: SliverList.separated(
             itemCount: items.length,
-            separatorBuilder: (_, __) => const Divider(color: NC.line, height: 24),
-            itemBuilder: (_, i) => _ProductRow(product: items[i], store: store),
+            separatorBuilder: (_, __) => const Divider(color: NC.line, height: Sp.xl),
+            itemBuilder: (_, i) => NovigoProductRow(
+              product: items[i],
+              store: store,
+              onTap: () => _openProduct(items[i]),
+            ),
           ),
         ));
       }
@@ -145,30 +268,18 @@ class StoreScreen extends StatelessWidget {
     return ListenableBuilder(
       listenable: cart,
       builder: (_, __) {
+        // La barre ne concerne que le panier de **cette** boutique : afficher un
+        // total constitué ailleurs ferait croire à une commande groupée.
         if (cart.count == 0 || cart.store?.id != store.id) return const SizedBox.shrink();
         return SafeArea(
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-            child: GestureDetector(
-              onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const CartScreen())),
-              child: Container(
-                height: 58,
-                padding: const EdgeInsets.symmetric(horizontal: 18),
-                decoration: BoxDecoration(gradient: NC.brandGradient, borderRadius: BorderRadius.circular(16), boxShadow: [
-                  BoxShadow(color: NC.brand.withValues(alpha: 0.35), blurRadius: 20, offset: const Offset(0, 8)),
-                ]),
-                child: Row(children: [
-                  Container(
-                    padding: const EdgeInsets.all(6),
-                    decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.22), borderRadius: BorderRadius.circular(8)),
-                    child: Text('${cart.count}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800)),
-                  ),
-                  const SizedBox(width: 12),
-                  const Text('Voir le panier', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 16)),
-                  const Spacer(),
-                  Text(fcfa(cart.subtotal), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 16)),
-                ]),
-              ),
+            padding: const EdgeInsets.fromLTRB(Sp.lg, 0, Sp.lg, Sp.md),
+            child: NovigoButton(
+              label: 'Voir le panier · ${cart.count}',
+              trailingLabel: fcfa(cart.subtotal),
+              icon: Icons.shopping_bag_rounded,
+              onPressed: () => Navigator.of(context)
+                  .push(MaterialPageRoute(builder: (_) => const CartScreen())),
             ),
           ),
         );
@@ -177,162 +288,38 @@ class StoreScreen extends StatelessWidget {
   }
 }
 
-class _ProductRow extends StatelessWidget {
-  final Product product;
-  final Store store;
-  const _ProductRow({required this.product, required this.store});
+/// Squelette du menu : deux titres de rayon et quelques lignes de produits.
+class _MenuSkeleton extends StatelessWidget {
+  const _MenuSkeleton();
 
   @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () => _openSheet(context),
-      behavior: HitTestBehavior.opaque,
-      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [
-              Flexible(child: Text(product.name, style: T.title, maxLines: 1, overflow: TextOverflow.ellipsis)),
-              if (product.popular) ...[
-                const SizedBox(width: 8),
-                const Pill('Populaire', color: NC.brand, bg: Color(0x1FE53935), icon: Icons.local_fire_department_rounded),
-              ],
-            ]),
-            const SizedBox(height: 4),
-            Text(product.desc, style: T.muted, maxLines: 2, overflow: TextOverflow.ellipsis),
-            const SizedBox(height: 8),
-            Row(children: [
-              Text(fcfa(product.price), style: T.price),
-              if (product.discount != null) ...[
-                const SizedBox(width: 8),
-                Pill('-${product.discount}%', color: Colors.white, bg: NC.brand),
-              ],
-            ]),
-          ]),
-        ),
-        const SizedBox(width: 12),
-        Stack(clipBehavior: Clip.none, children: [
-          Img(product.image, width: 96, height: 96, radius: BorderRadius.circular(16)),
-          Positioned(
-            right: -8,
-            bottom: -8,
-            child: ListenableBuilder(
-              listenable: cart,
-              builder: (_, __) {
-                final q = cart.qtyOf(product);
-                return GestureDetector(
-                  onTap: () => cart.add(product, store),
-                  child: Container(
-                    width: 34,
-                    height: 34,
-                    decoration: BoxDecoration(
-                      color: q > 0 ? NC.brand : NC.surfaceAlt,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: NC.shell, width: 3),
-                    ),
-                    child: q > 0
-                        ? Center(child: Text('$q', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800)))
-                        : const Icon(Icons.add, color: NC.ink, size: 20),
-                  ),
-                );
-              },
-            ),
-          ),
-        ]),
-      ]),
-    );
-  }
-
-  void _openSheet(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _ProductSheet(product: product, store: store),
-    );
-  }
-}
-
-/// Tuile produit en grille (rayons supermarché / pharmacie / marché / boulangerie).
-class _ProductTile extends StatelessWidget {
-  final Product product;
-  final Store store;
-  const _ProductTile({required this.product, required this.store});
-
-  @override
-  Widget build(BuildContext context) {
-    final tone = product.tone ?? NC.brand;
-    return GestureDetector(
-      onTap: () => showModalBottomSheet(
-        context: context,
-        isScrollControlled: true,
-        backgroundColor: Colors.transparent,
-        builder: (_) => _ProductSheet(product: product, store: store),
-      ),
-      behavior: HitTestBehavior.opaque,
-      child: Container(
-        decoration: cardDeco(radius: 18),
-        clipBehavior: Clip.antiAlias,
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          // Visuel icône
-          Expanded(
-            child: Stack(children: [
-              Container(
-                width: double.infinity,
-                color: tone.withValues(alpha: 0.14),
-                alignment: Alignment.center,
-                child: Icon(product.icon, color: tone, size: 44),
-              ),
-              if (product.discount != null)
-                Positioned(left: 8, top: 8, child: Pill('-${product.discount}%', color: Colors.white, bg: NC.brand)),
-              if (product.popular && product.discount == null)
-                const Positioned(
-                    left: 8,
-                    top: 8,
-                    child: Pill('Populaire', color: NC.brand, bg: Color(0x1FE53935), icon: Icons.local_fire_department_rounded)),
-              Positioned(
-                right: 8,
-                bottom: 8,
-                child: ListenableBuilder(
-                  listenable: cart,
-                  builder: (_, __) {
-                    final q = cart.qtyOf(product);
-                    return GestureDetector(
-                      onTap: () => cart.add(product, store),
-                      child: Container(
-                        width: 34,
-                        height: 34,
-                        decoration: BoxDecoration(
-                          color: q > 0 ? NC.brand : NC.surfaceAlt,
-                          shape: BoxShape.circle,
-                          border: Border.all(color: NC.surface, width: 2),
-                        ),
-                        child: q > 0
-                            ? Center(child: Text('$q', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 13)))
-                            : const Icon(Icons.add, color: NC.ink, size: 19),
-                      ),
-                    );
-                  },
+  Widget build(BuildContext context) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const NovigoSkeleton(width: 120, height: 18, radius: 6),
+          const SizedBox(height: Sp.lg),
+          for (var i = 0; i < 4; i++)
+            const Padding(
+              padding: EdgeInsets.only(bottom: Sp.xl),
+              child: Row(children: [
+                Expanded(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    NovigoSkeleton(width: 150, height: 15, radius: 6),
+                    SizedBox(height: Sp.sm),
+                    NovigoSkeleton(height: 11, radius: 6),
+                    SizedBox(height: Sp.sm),
+                    NovigoSkeleton(width: 80, height: 13, radius: 6),
+                  ]),
                 ),
-              ),
-            ]),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(product.name, style: const TextStyle(color: NC.ink, fontWeight: FontWeight.w700, fontSize: 13.5),
-                  maxLines: 1, overflow: TextOverflow.ellipsis),
-              const SizedBox(height: 2),
-              Text(product.desc, style: const TextStyle(color: NC.faint, fontSize: 11.5), maxLines: 1, overflow: TextOverflow.ellipsis),
-              const SizedBox(height: 6),
-              Text(fcfa(product.price), style: const TextStyle(color: NC.ink, fontWeight: FontWeight.w800, fontSize: 14.5)),
-            ]),
-          ),
-        ]),
-      ),
-    );
-  }
+                SizedBox(width: Sp.md),
+                NovigoSkeleton(width: 96, height: 96, radius: R.md),
+              ]),
+            ),
+        ],
+      );
 }
 
+/// Feuille produit : visuel, description, quantité, ajout au panier.
 class _ProductSheet extends StatelessWidget {
   final Product product;
   final Store store;
@@ -340,72 +327,57 @@ class _ProductSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: const BoxDecoration(
-        color: NC.paper,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-      ),
-      child: SafeArea(
-        top: false,
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          const SizedBox(height: 10),
-          Container(width: 44, height: 5, decoration: BoxDecoration(color: NC.line, borderRadius: BorderRadius.circular(999))),
-          const SizedBox(height: 14),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 18),
-            child: product.isTile
-                ? Container(
-                    height: 200,
-                    width: double.infinity,
-                    decoration: BoxDecoration(
-                      color: (product.tone ?? NC.brand).withValues(alpha: 0.14),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    alignment: Alignment.center,
-                    child: Icon(product.icon, color: product.tone ?? NC.brand, size: 84),
-                  )
-                : Img(product.image, height: 200, width: double.infinity, radius: BorderRadius.circular(20)),
+    return NovigoBottomSheet(
+      footer: Row(children: [
+        ListenableBuilder(
+          listenable: cart,
+          builder: (_, __) => QtyStepper(
+            qty: cart.qtyOf(product).clamp(0, 99),
+            onAdd: () => cart.add(product, store),
+            onRemove: () => cart.remove(product),
           ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(product.name, style: T.h2),
-              const SizedBox(height: 6),
-              Text(product.desc, style: T.muted),
-              const SizedBox(height: 12),
-              Text(fcfa(product.price), style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: NC.ink)),
-            ]),
+        ),
+        const SizedBox(width: Sp.md + 2),
+        Expanded(
+          child: NovigoButton(
+            label: 'Ajouter au panier',
+            onPressed: () {
+              if (cart.qtyOf(product) == 0) cart.add(product, store);
+              Navigator.pop(context);
+            },
           ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
-            child: Row(children: [
-              ListenableBuilder(
-                listenable: cart,
-                builder: (_, __) => QtyStepper(
-                  qty: cart.qtyOf(product).clamp(0, 99),
-                  onAdd: () => cart.add(product, store),
-                  onRemove: () => cart.remove(product),
-                ),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: GestureDetector(
-                  onTap: () {
-                    if (cart.qtyOf(product) == 0) cart.add(product, store);
-                    Navigator.pop(context);
-                  },
-                  child: Container(
-                    height: 54,
-                    decoration: BoxDecoration(gradient: NC.brandGradient, borderRadius: BorderRadius.circular(16)),
-                    alignment: Alignment.center,
-                    child: const Text('Ajouter au panier', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 16)),
-                  ),
-                ),
-              ),
-            ]),
-          ),
+        ),
+      ]),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        _visual(),
+        const SizedBox(height: Sp.lg),
+        Text(product.name, style: T.h2),
+        const SizedBox(height: Sp.xs + 2),
+        Text(product.desc, style: T.muted),
+        const SizedBox(height: Sp.md),
+        Row(children: [
+          Text(fcfa(product.price),
+              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: NC.ink)),
+          if (product.discount != null) ...[
+            const SizedBox(width: Sp.md),
+            Pill('-${product.discount}%', color: Colors.white, bg: NC.brand),
+          ],
         ]),
-      ),
+      ]),
     );
   }
+
+  Widget _visual() => product.isTile
+      ? Container(
+          height: 190,
+          width: double.infinity,
+          decoration: BoxDecoration(
+            color: (product.tone ?? NC.brand).withValues(alpha: 0.14),
+            borderRadius: BorderRadius.circular(R.lg),
+          ),
+          alignment: Alignment.center,
+          child: Icon(product.icon, color: product.tone ?? NC.brand, size: 80),
+        )
+      : Img(product.image,
+          height: 190, width: double.infinity, radius: BorderRadius.circular(R.lg));
 }

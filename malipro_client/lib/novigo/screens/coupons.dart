@@ -243,7 +243,7 @@ class _CouponTicket extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
-      decoration: cardDeco(radius: 18),
+      decoration: cardDeco(radius: R.lg),
       clipBehavior: Clip.antiAlias,
       child: IntrinsicHeight(
         child: Row(children: [
@@ -283,7 +283,7 @@ class _CouponTicket extends StatelessWidget {
                     ),
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                      decoration: BoxDecoration(color: accent, borderRadius: BorderRadius.circular(999)),
+                      decoration: BoxDecoration(color: accent, borderRadius: BorderRadius.circular(R.pill)),
                       child: const Text('Utiliser', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 13)),
                     ),
                   ),
@@ -328,7 +328,7 @@ class _ExpiredTicket extends StatelessWidget {
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(14),
-        decoration: cardDeco(radius: 16),
+        decoration: cardDeco(radius: R.md),
         child: Row(children: [
           Container(
             width: 42,
@@ -345,7 +345,7 @@ class _ExpiredTicket extends StatelessWidget {
           ),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(color: NC.surfaceAlt, borderRadius: BorderRadius.circular(999)),
+            decoration: BoxDecoration(color: NC.surfaceAlt, borderRadius: BorderRadius.circular(R.pill)),
             child: const Text('Expiré', style: TextStyle(color: NC.faint, fontWeight: FontWeight.w700, fontSize: 12)),
           ),
         ]),

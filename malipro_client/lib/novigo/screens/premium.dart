@@ -23,11 +23,18 @@ class _PremiumScreenState extends State<PremiumScreen> {
         // Hero
         Container(
           padding: const EdgeInsets.all(22),
-          decoration: BoxDecoration(gradient: NC.premiumGradient, borderRadius: BorderRadius.circular(24)),
+          decoration: BoxDecoration(
+            gradient: NC.premiumGradient,
+            borderRadius: BorderRadius.circular(R.xl),
+            border: Border.all(color: NC.hairline),
+            boxShadow: [
+              BoxShadow(color: NC.brand.withValues(alpha: 0.20), blurRadius: 28, offset: const Offset(0, 14)),
+            ],
+          ),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(color: NC.gold.withValues(alpha: 0.22), borderRadius: BorderRadius.circular(999)),
+              decoration: BoxDecoration(color: NC.gold.withValues(alpha: 0.22), borderRadius: BorderRadius.circular(R.pill)),
               child: const Row(mainAxisSize: MainAxisSize.min, children: [
                 Icon(Icons.workspace_premium_rounded, color: NC.gold, size: 15),
                 SizedBox(width: 5),
@@ -107,7 +114,7 @@ class _Benefit extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(14),
-      decoration: cardDeco(radius: 16),
+      decoration: cardDeco(radius: R.md),
       child: Row(children: [
         Container(
           width: 46,
@@ -181,7 +188,7 @@ class _PlanCard extends StatelessWidget {
                   const SizedBox(width: 8),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(color: NC.success.withValues(alpha: 0.18), borderRadius: BorderRadius.circular(999)),
+                    decoration: BoxDecoration(color: NC.success.withValues(alpha: 0.18), borderRadius: BorderRadius.circular(R.pill)),
                     child: Text(badge!, style: const TextStyle(color: NC.success, fontWeight: FontWeight.w800, fontSize: 12)),
                   ),
                 ],

@@ -56,7 +56,7 @@ class _RechargeScreenState extends State<RechargeScreen> {
 
         // Numéro préempli
         Container(
-          decoration: cardDeco(radius: 16),
+          decoration: cardDeco(radius: R.md),
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
           child: Row(children: [
             Icon(Icons.smartphone_rounded, color: _accent, size: 22),
@@ -80,7 +80,7 @@ class _RechargeScreenState extends State<RechargeScreen> {
         // Onglets Crédit / Forfaits
         Container(
           padding: const EdgeInsets.all(4),
-          decoration: BoxDecoration(color: NC.surface, borderRadius: BorderRadius.circular(999)),
+          decoration: BoxDecoration(color: NC.surface, borderRadius: BorderRadius.circular(R.pill)),
           child: Row(children: [
             _tabBtn('Crédit', 0),
             _tabBtn('Forfaits', 1),
@@ -147,7 +147,7 @@ class _RechargeScreenState extends State<RechargeScreen> {
           alignment: Alignment.center,
           decoration: BoxDecoration(
             color: on ? NC.brand : Colors.transparent,
-            borderRadius: BorderRadius.circular(999),
+            borderRadius: BorderRadius.circular(R.pill),
           ),
           child: Text(label,
               style: TextStyle(color: on ? Colors.white : NC.muted, fontWeight: FontWeight.w700, fontSize: 14.5)),

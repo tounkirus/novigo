@@ -84,7 +84,7 @@ class _RideScreenState extends State<RideScreen> {
     return Container(
       height: 190,
       clipBehavior: Clip.antiAlias,
-      decoration: cardDeco(radius: 22),
+      decoration: cardDeco(radius: R.xl),
       child: Stack(children: [
         Positioned.fill(child: CustomPaint(painter: _MapPainter())),
         const Positioned(
@@ -119,7 +119,7 @@ class _RideScreenState extends State<RideScreen> {
   // ── Départ / Destination ──────────────────────────────────────────
   Widget _tripCard() {
     return Container(
-      decoration: cardDeco(radius: 18),
+      decoration: cardDeco(radius: R.lg),
       padding: const EdgeInsets.all(4),
       child: Column(children: [
         const ListTile(
@@ -158,7 +158,7 @@ class _RideScreenState extends State<RideScreen> {
       builder: (ctx) => SafeArea(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           const SizedBox(height: 10),
-          Container(width: 42, height: 4, decoration: BoxDecoration(color: NC.line, borderRadius: BorderRadius.circular(999))),
+          Container(width: 42, height: 4, decoration: BoxDecoration(color: NC.line, borderRadius: BorderRadius.circular(R.pill))),
           const Padding(
             padding: EdgeInsets.fromLTRB(20, 16, 20, 6),
             child: Align(alignment: Alignment.centerLeft, child: Text('Choisir une destination', style: T.h2)),
@@ -223,7 +223,7 @@ class _RideScreenState extends State<RideScreen> {
   Widget _driverRow(_Driver d, _RideCat cat) {
     return Container(
       padding: const EdgeInsets.all(12),
-      decoration: cardDeco(radius: 16),
+      decoration: cardDeco(radius: R.md),
       child: Row(children: [
         Container(
           width: 46,
@@ -248,7 +248,7 @@ class _RideScreenState extends State<RideScreen> {
         ),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          decoration: BoxDecoration(color: NC.successSoft, borderRadius: BorderRadius.circular(999)),
+          decoration: BoxDecoration(color: NC.successSoft, borderRadius: BorderRadius.circular(R.pill)),
           child: Text('${d.min} min',
               style: const TextStyle(color: NC.success, fontWeight: FontWeight.w800, fontSize: 12.5)),
         ),
@@ -332,7 +332,7 @@ class _Pin extends StatelessWidget {
     return Column(mainAxisSize: MainAxisSize.min, children: [
       Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-        decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.55), borderRadius: BorderRadius.circular(999)),
+        decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.55), borderRadius: BorderRadius.circular(R.pill)),
         child: Text(label, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700)),
       ),
       const SizedBox(height: 4),

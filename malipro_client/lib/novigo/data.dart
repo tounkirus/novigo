@@ -9,8 +9,9 @@ const categories = <Category>[
   Category('supermarche', 'Supermarché', Icons.local_grocery_store, 200),
   Category('pharmacie', 'Pharmacie', Icons.local_pharmacy, 100),
   Category('marche', 'Marché', Icons.storefront, 100),
-  Category('colis', 'Colis', Icons.local_shipping, 80),
   Category('boulangerie', 'Boulangerie', Icons.bakery_dining, 150),
+  Category('boutique', 'Boutique', Icons.shopping_bag, 300),
+  Category('colis', 'Colis', Icons.local_shipping, 80),
 ];
 
 // Plats maliens / ouest-africains + fast-food, prix FCFA réalistes.

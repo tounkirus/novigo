@@ -157,14 +157,21 @@ class _LoyaltyScreenState extends State<LoyaltyScreen> {
           // Carte fidélité gradient
           Container(
             padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(gradient: NC.premiumGradient, borderRadius: BorderRadius.circular(24)),
+            decoration: BoxDecoration(
+            gradient: NC.premiumGradient,
+            borderRadius: BorderRadius.circular(R.xl),
+            border: Border.all(color: NC.hairline),
+            boxShadow: [
+              BoxShadow(color: NC.brand.withValues(alpha: 0.20), blurRadius: 28, offset: const Offset(0, 14)),
+            ],
+          ),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Row(children: [
                 const Text('Mes points', style: TextStyle(color: Colors.white70, fontSize: 13)),
                 const Spacer(),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(color: NC.gold.withValues(alpha: 0.22), borderRadius: BorderRadius.circular(999)),
+                  decoration: BoxDecoration(color: NC.gold.withValues(alpha: 0.22), borderRadius: BorderRadius.circular(R.pill)),
                   child: Row(mainAxisSize: MainAxisSize.min, children: [
                     const Icon(Icons.workspace_premium_rounded, color: NC.gold, size: 15),
                     const SizedBox(width: 5),
@@ -186,7 +193,7 @@ class _LoyaltyScreenState extends State<LoyaltyScreen> {
               const SizedBox(height: 16),
               // Barre de progression vers le palier suivant
               ClipRRect(
-                borderRadius: BorderRadius.circular(999),
+                borderRadius: BorderRadius.circular(R.pill),
                 child: LinearProgressIndicator(
                   value: progress,
                   minHeight: 9,
@@ -259,7 +266,7 @@ class _LoyaltyScreenState extends State<LoyaltyScreen> {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(14),
-      decoration: cardDeco(radius: 16),
+      decoration: cardDeco(radius: R.md),
       child: Row(children: [
         Container(
           width: 42,
@@ -331,7 +338,7 @@ class _RewardCard extends StatelessWidget {
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.all(16),
-        decoration: cardDeco(radius: 18),
+        decoration: cardDeco(radius: R.lg),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Container(
             width: 46,
@@ -346,7 +353,7 @@ class _RewardCard extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
               color: affordable ? accent.withValues(alpha: 0.16) : NC.surfaceAlt,
-              borderRadius: BorderRadius.circular(999),
+              borderRadius: BorderRadius.circular(R.pill),
             ),
             child: Row(mainAxisSize: MainAxisSize.min, children: [
               Icon(Icons.stars_rounded, size: 14, color: affordable ? accent : NC.faint),

@@ -1,14 +1,64 @@
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+
 import 'api_client.dart';
 import 'env.dart';
 
-/// Session d'authentification (JWT du Gateway). En mémoire pour la démo.
-/// Login = téléphone + mot de passe (contrat Nest /auth/login).
+/// Session d'authentification (JWT du Gateway).
+/// Le token vit en mémoire (il expire), mais le numéro connecté est conservé au
+/// coffre : au redémarrage à froid l'utilisateur retrouve sa session au lieu de
+/// repasser par l'écran OTP.
 class Session {
+  static const _kPhoneKey = 'novigo.client.phone';
+  final FlutterSecureStorage _storage = const FlutterSecureStorage();
+
   String? token;
   String? userId;
   String? phone;
 
+  /// Vrai dès qu'un numéro a été validé (indépendant du token, donc valable
+  /// aussi en mode mock où aucun appel réseau n'est fait).
+  bool signedIn = false;
+
   bool get authenticated => token != null;
+
+  /// Restaure la session au démarrage. Best-effort : toute erreur ramène
+  /// simplement à l'écran de connexion.
+  Future<void> restore() async {
+    try {
+      final saved = await _storage.read(key: _kPhoneKey);
+      if (saved == null || saved.isEmpty) return;
+      phone = saved;
+      _lastPhone = saved;
+      signedIn = true;
+      if (NovigoEnv.live) {
+        try {
+          await login(saved, NovigoEnv.demoPassword);
+        } catch (_) {
+          // Token indisponible (backend éteint) : la session UI reste ouverte.
+        }
+      }
+    } catch (_) {
+      // Coffre illisible : on repart sur l'écran de connexion.
+    }
+  }
+
+  /// Mémorise le numéro validé pour les prochains lancements.
+  Future<void> remember(String phone) async {
+    signedIn = true;
+    this.phone = phone;
+    try {
+      await _storage.write(key: _kPhoneKey, value: phone);
+    } catch (_) {}
+  }
+
+  /// Déconnexion explicite : purge le coffre en plus de la mémoire.
+  Future<void> signOut() async {
+    logout();
+    signedIn = false;
+    try {
+      await _storage.delete(key: _kPhoneKey);
+    } catch (_) {}
+  }
 
   // Dernières identifiants utilisés (pour ré-authentifier sur expiration du token).
   String _lastPhone = NovigoEnv.demoPhone;

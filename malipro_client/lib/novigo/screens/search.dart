@@ -1,12 +1,21 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
-import '../theme.dart';
+
 import '../data/catalog_model.dart';
 import '../models.dart';
-import '../widgets.dart';
+import '../services_catalog.dart';
+import '../ui/ui.dart';
 import 'store.dart';
 
+/// Recherche unifiée : commerces **et** services NOVIGO.
+///
+/// Taper « pharmacie » doit proposer la rubrique Pharmacie autant que les
+/// pharmacies elles-mêmes — l'utilisateur ne sait pas, et n'a pas à savoir, si
+/// ce qu'il cherche est un service ou un commerce.
 class SearchScreen extends StatefulWidget {
   const SearchScreen({super.key});
+
   @override
   State<SearchScreen> createState() => _SearchScreenState();
 }
@@ -14,118 +23,185 @@ class SearchScreen extends StatefulWidget {
 class _SearchScreenState extends State<SearchScreen> {
   final _ctrl = TextEditingController();
   String _q = '';
-  final _suggestions = const ['Tiéboudienne', 'Yassa', 'Pizza', 'Poulet braisé', 'Attiéké', 'Burger'];
+  Timer? _debounce;
+  bool _searching = false;
+  Object? _error;
+  List<Store> _stores = const [];
+  List<NovigoService> _services = const [];
+
+  static const _suggestions = [
+    'Tiéboudienne',
+    'Yassa',
+    'Pizza',
+    'Poulet braisé',
+    'Attiéké',
+    'Pharmacie',
+    'Plombier',
+    'Taxi',
+  ];
 
   @override
   void dispose() {
+    _debounce?.cancel();
     _ctrl.dispose();
     super.dispose();
   }
 
-  List<Store> get _stores {
-    final q = _q.trim().toLowerCase();
-    if (q.isEmpty) return [];
-    return catalog.allStores.where((s) {
-      if (s.name.toLowerCase().contains(q) || s.cuisine.toLowerCase().contains(q) || s.district.toLowerCase().contains(q)) {
-        return true;
-      }
-      return s.products.any((p) => p.name.toLowerCase().contains(q));
-    }).toList();
+  /// Recherche côté serveur, temporisée : filtrer localement ne verrait que les
+  /// quelques commerces déjà chargés, sur un catalogue qui en compte 1 450.
+  void _onQueryChanged(String v) {
+    setState(() {
+      _q = v;
+      _services = searchNovigoServices(v); // instantané, purement local
+    });
+    _debounce?.cancel();
+    if (v.trim().isEmpty) {
+      setState(() {
+        _stores = const [];
+        _searching = false;
+        _error = null;
+      });
+      return;
+    }
+    setState(() {
+      _searching = true;
+      _error = null;
+    });
+    _debounce = Timer(const Duration(milliseconds: 350), () => _run(v));
+  }
+
+  Future<void> _run(String query) async {
+    try {
+      final found = await catalog.search(query);
+      if (!mounted || query != _q) return; // une frappe plus récente a pris la main
+      setState(() {
+        _stores = found;
+        _searching = false;
+      });
+    } catch (e) {
+      if (!mounted || query != _q) return;
+      setState(() {
+        _error = e;
+        _searching = false;
+      });
+    }
+  }
+
+  NovigoStatus get _status {
+    if (_searching && _stores.isEmpty && _services.isEmpty) return NovigoStatus.loading;
+    if (_error != null && _stores.isEmpty) return NovigoStatus.error;
+    if (_stores.isEmpty && _services.isEmpty) return NovigoStatus.empty;
+    return NovigoStatus.loaded;
   }
 
   @override
   Widget build(BuildContext context) {
+    final gutter = Rs.of(context).gutter;
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 0,
-        title: Container(
-          height: 44,
-          margin: const EdgeInsets.only(right: 16),
-          padding: const EdgeInsets.symmetric(horizontal: 14),
-          decoration: BoxDecoration(color: NC.surface, borderRadius: BorderRadius.circular(14)),
-          child: Row(children: [
-            const Icon(Icons.search_rounded, color: NC.brand, size: 22),
-            const SizedBox(width: 10),
-            Expanded(
-              child: TextField(
-                controller: _ctrl,
-                autofocus: true,
-                style: const TextStyle(color: NC.ink, fontSize: 15),
-                cursorColor: NC.brand,
-                decoration: const InputDecoration(
-                  isCollapsed: true,
-                  border: InputBorder.none,
-                  hintText: 'Rechercher un plat, un commerce…',
-                  hintStyle: TextStyle(color: NC.faint, fontSize: 15),
-                ),
-                onChanged: (v) => setState(() => _q = v),
-              ),
-            ),
-            if (_q.isNotEmpty)
-              GestureDetector(
-                onTap: () => setState(() {
-                  _q = '';
-                  _ctrl.clear();
-                }),
-                child: const Icon(Icons.close_rounded, color: NC.muted, size: 20),
-              ),
-          ]),
+        leading: const BackButton(color: NC.ink),
+        title: Padding(
+          padding: EdgeInsets.only(right: gutter),
+          child: NovigoSearchBar.field(
+            controller: _ctrl,
+            hint: 'Plat, commerce ou service…',
+            onChanged: _onQueryChanged,
+            onSubmitted: _onQueryChanged,
+          ),
         ),
+        toolbarHeight: 70,
       ),
-      body: _q.trim().isEmpty ? _empty() : _results(),
+      body: _q.trim().isEmpty ? _suggestionsView(gutter) : _resultsView(gutter),
     );
   }
 
-  Widget _empty() => ListView(padding: const EdgeInsets.all(16), children: [
-        const Text('Suggestions', style: T.h2),
-        const SizedBox(height: 12),
-        Wrap(spacing: 10, runSpacing: 10, children: [
-          for (final s in _suggestions)
-            GestureDetector(
-              onTap: () => setState(() {
-                _q = s;
-                _ctrl.text = s;
-              }),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                decoration: BoxDecoration(color: NC.surface, borderRadius: BorderRadius.circular(999)),
-                child: Row(mainAxisSize: MainAxisSize.min, children: [
-                  const Icon(Icons.trending_up_rounded, size: 16, color: NC.brand),
-                  const SizedBox(width: 6),
-                  Text(s, style: T.chip),
-                ]),
-              ),
-            ),
-        ]),
-      ]);
-
-  Widget _results() {
-    final stores = _stores;
-    if (stores.isEmpty) {
-      return Center(
-        child: Column(mainAxisSize: MainAxisSize.min, children: const [
-          Icon(Icons.search_off_rounded, size: 48, color: NC.faint),
-          SizedBox(height: 12),
-          Text('Aucun résultat', style: T.h2),
-          SizedBox(height: 6),
-          Text('Essayez un autre plat ou commerce.', style: T.muted),
-        ]),
+  Widget _suggestionsView(double gutter) => ListView(
+        padding: EdgeInsets.fromLTRB(gutter, Sp.lg, gutter, Sp.xxl),
+        children: [
+          const NovigoSectionHeader(overline: 'Tendances', title: 'Recherches populaires'),
+          const SizedBox(height: Sp.lg),
+          Wrap(
+            spacing: Sp.sm + 2,
+            runSpacing: Sp.sm + 2,
+            children: [
+              for (final s in _suggestions)
+                NovigoChip(
+                  label: s,
+                  icon: Icons.trending_up_rounded,
+                  onTap: () {
+                    _ctrl.text = s;
+                    _onQueryChanged(s);
+                  },
+                ),
+            ],
+          ),
+        ],
       );
-    }
-    return ListView.separated(
-      padding: const EdgeInsets.all(16),
-      itemCount: stores.length + 1,
-      separatorBuilder: (_, __) => const SizedBox(height: 16),
-      itemBuilder: (_, i) {
-        if (i == 0) {
-          return Text('${stores.length} résultat${stores.length > 1 ? 's' : ''}', style: T.muted);
-        }
-        final s = stores[i - 1];
-        return StoreCard(
-          store: s,
-          onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => StoreScreen(store: s))),
-        );
-      },
-    );
-  }
+
+  Widget _resultsView(double gutter) => NovigoStateView(
+        status: _status,
+        onRetry: () => _run(_q),
+        errorMessage: 'La recherche n\'a pas abouti. Vérifiez votre connexion.',
+        loading: (_) => ListView(
+          padding: EdgeInsets.fromLTRB(gutter, Sp.lg, gutter, Sp.xxl),
+          children: const [NovigoMerchantListSkeleton(count: 2)],
+        ),
+        emptyState: NovigoEmptyState.empty(
+          icon: Icons.search_off_rounded,
+          title: 'Aucun résultat',
+          message: 'Essayez un autre plat, commerce ou service.',
+          actionLabel: 'Effacer',
+          onAction: () {
+            _ctrl.clear();
+            _onQueryChanged('');
+          },
+        ),
+        loaded: (context) => NovigoContentWidth(
+          child: ListView(
+            padding: EdgeInsets.fromLTRB(gutter, Sp.lg, gutter, Sp.xxl),
+            children: [
+              if (_services.isNotEmpty) ...[
+                const NovigoSectionHeader(overline: 'Services', title: 'Services NOVIGO'),
+                const SizedBox(height: Sp.md),
+                NovigoTileGroup(children: [
+                  for (final s in _services.take(4))
+                    NovigoTile(
+                      icon: s.icon,
+                      tone: s.tone,
+                      label: s.label,
+                      subtitle: s.available ? s.subtitle : 'Bientôt disponible',
+                      onTap: () {
+                        final destination = s.destination;
+                        if (destination == null) return;
+                        Navigator.of(context).push(MaterialPageRoute(builder: destination));
+                      },
+                    ),
+                ]),
+                const SizedBox(height: Sp.section),
+              ],
+              if (_stores.isNotEmpty) ...[
+                NovigoSectionHeader(
+                  overline: 'Commerces',
+                  title: '${_stores.length} résultat${_stores.length > 1 ? 's' : ''}',
+                ),
+                const SizedBox(height: Sp.lg),
+                for (var i = 0; i < _stores.length; i++)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: Sp.lg),
+                    child: FadeSlideIn(
+                      index: i,
+                      child: NovigoMerchantCard(
+                        store: _stores[i],
+                        onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute(builder: (_) => StoreScreen(store: _stores[i]))),
+                      ),
+                    ),
+                  ),
+              ] else if (_searching)
+                const NovigoMerchantListSkeleton(count: 2),
+            ],
+          ),
+        ),
+      );
 }

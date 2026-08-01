@@ -1,7 +1,13 @@
 import 'package:flutter/material.dart';
-import '../theme.dart';
 
-/// Paramètres de l'application (bascules visuelles + langue, tout en mock).
+import '../ui/ui.dart';
+
+/// Paramètres — **trois groupes** : ce qui vous alerte, ce que vous préférez, et
+/// ce qu'est cette application.
+///
+/// La bascule « Mode sombre » a été remplacée par une simple ligne d'information :
+/// NOVIGO n'a qu'un thème, et un interrupteur qui ne change rien à l'écran fait
+/// douter de tous les autres.
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
 
@@ -13,7 +19,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _pushNotif = true;
   bool _promos = true;
   bool _localisation = true;
-  bool _darkMode = true;
   String _langue = 'Français';
 
   void _snack(String msg) {
@@ -26,192 +31,235 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ));
   }
 
+  Future<void> _pickLangue() async {
+    const langues = ['Français', 'Bambara', 'English'];
+    final choice = await showNovigoSheet<String>(
+      context,
+      builder: (_) => NovigoBottomSheet(
+        title: 'Choisir la langue',
+        // `ListTile` peint son onde tactile sur le `Material` le plus proche ;
+        // la feuille a un fond opaque, il faut donc lui en fournir un.
+        child: Material(
+          type: MaterialType.transparency,
+          child: Column(children: [
+            for (final l in langues)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text(l,
+                    style: const TextStyle(
+                        color: NC.ink, fontWeight: FontWeight.w600, fontSize: 15)),
+                trailing: _langue == l ? const Icon(Icons.check_rounded, color: NC.brand) : null,
+                onTap: () => Navigator.pop(context, l),
+              ),
+          ]),
+        ),
+      ),
+    );
+    if (choice == null || !mounted) return;
+    setState(() => _langue = choice);
+    // L'application n'est pas encore traduite : le dire vaut mieux que de laisser
+    // croire que l'interface va changer de langue.
+    _snack(choice == 'Français'
+        ? 'Langue : Français'
+        : 'Langue enregistrée : $choice — traduction en cours de déploiement.');
+  }
+
   @override
   Widget build(BuildContext context) {
+    final gutter = Rs.of(context).gutter;
+
     return Scaffold(
       appBar: AppBar(title: const Text('Paramètres', style: T.h2)),
       body: SafeArea(
         top: false,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
-          children: [
-            _sectionLabel('Notifications'),
-            _group([
-              _switch(
-                icon: Icons.notifications_active_outlined,
-                title: 'Notifications push',
-                subtitle: 'Suivi de commande et alertes',
-                value: _pushNotif,
-                onChanged: (v) => setState(() => _pushNotif = v),
+        child: NovigoContentWidth(
+          child: ListView(
+            padding: EdgeInsets.fromLTRB(gutter, Sp.sm, gutter, Sp.xxl),
+            children: [
+              const Text('NOTIFICATIONS', style: T.overline),
+              const SizedBox(height: Sp.md),
+              NovigoCard(
+                padding: EdgeInsets.zero,
+                clipBehavior: Clip.antiAlias,
+                child: Column(children: [
+                  _SettingSwitch(
+                    icon: Icons.notifications_active_outlined,
+                    title: 'Notifications push',
+                    subtitle: 'Suivi de commande et alertes',
+                    value: _pushNotif,
+                    onChanged: (v) => setState(() => _pushNotif = v),
+                  ),
+                  const NovigoDivider(indent: 66),
+                  _SettingSwitch(
+                    icon: Icons.local_offer_outlined,
+                    title: 'Promotions',
+                    subtitle: 'Offres et bons plans NOVIGO',
+                    value: _promos,
+                    onChanged: (v) => setState(() => _promos = v),
+                  ),
+                ]),
               ),
-              _divider(),
-              _switch(
-                icon: Icons.local_offer_outlined,
-                title: 'Promotions',
-                subtitle: 'Offres et bons plans NOVIGO',
-                value: _promos,
-                onChanged: (v) => setState(() => _promos = v),
+
+              const SizedBox(height: Sp.xl),
+              const Text('PRÉFÉRENCES', style: T.overline),
+              const SizedBox(height: Sp.md),
+              NovigoCard(
+                padding: EdgeInsets.zero,
+                clipBehavior: Clip.antiAlias,
+                child: Column(children: [
+                  _SettingSwitch(
+                    icon: Icons.my_location_outlined,
+                    title: 'Localisation',
+                    subtitle: 'Adresses et livreurs à proximité',
+                    value: _localisation,
+                    onChanged: (v) => setState(() => _localisation = v),
+                  ),
+                  const NovigoDivider(indent: 66),
+                  NovigoTile(
+                    icon: Icons.language_rounded,
+                    label: 'Langue',
+                    subtitle: _langue,
+                    onTap: _pickLangue,
+                  ),
+                  const NovigoDivider(indent: 66),
+                  const _InfoRow(
+                    icon: Icons.dark_mode_outlined,
+                    label: 'Thème',
+                    value: 'Sombre',
+                  ),
+                ]),
               ),
-            ]),
-            const SizedBox(height: 20),
-            _sectionLabel('Préférences'),
-            _group([
-              _switch(
-                icon: Icons.my_location_outlined,
-                title: 'Localisation',
-                subtitle: 'Adresses et livreurs à proximité',
-                value: _localisation,
-                onChanged: (v) => setState(() => _localisation = v),
+
+              const SizedBox(height: Sp.xl),
+              const Text('À PROPOS', style: T.overline),
+              const SizedBox(height: Sp.md),
+              NovigoCard(
+                padding: EdgeInsets.zero,
+                clipBehavior: Clip.antiAlias,
+                child: Column(children: [
+                  NovigoTile(
+                    icon: Icons.privacy_tip_outlined,
+                    label: 'Confidentialité',
+                    onTap: () => _snack('Politique de confidentialité'),
+                  ),
+                  const NovigoDivider(indent: 66),
+                  NovigoTile(
+                    icon: Icons.description_outlined,
+                    label: 'Conditions d\'utilisation',
+                    onTap: () => _snack('Conditions d\'utilisation'),
+                  ),
+                  const NovigoDivider(indent: 66),
+                  const _InfoRow(
+                    icon: Icons.info_outline_rounded,
+                    label: 'Version',
+                    value: '1.0.0',
+                    neutral: true,
+                  ),
+                ]),
               ),
-              _divider(),
-              _switch(
-                icon: Icons.dark_mode_outlined,
-                title: 'Mode sombre',
-                subtitle: 'Thème sombre premium',
-                value: _darkMode,
-                onChanged: (v) => setState(() => _darkMode = v),
-              ),
-              _divider(),
-              _langueTile(),
-            ]),
-            const SizedBox(height: 20),
-            _sectionLabel('À propos'),
-            _group([
-              _nav(Icons.privacy_tip_outlined, 'Confidentialité', () => _snack('Politique de confidentialité')),
-              _divider(),
-              _nav(Icons.description_outlined, 'Conditions d\'utilisation', () => _snack('Conditions d\'utilisation')),
-              _divider(),
-              const _VersionTile(),
-            ]),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
+}
 
-  Widget _sectionLabel(String t) => Padding(
-        padding: const EdgeInsets.only(left: 4, bottom: 10),
-        child: Text(t.toUpperCase(),
-            style: const TextStyle(color: NC.faint, fontWeight: FontWeight.w800, fontSize: 12, letterSpacing: 0.8)),
-      );
+/// Ligne à interrupteur, au même gabarit que `NovigoTile`.
+class _SettingSwitch extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final bool value;
+  final ValueChanged<bool> onChanged;
 
-  Widget _group(List<Widget> children) => Container(
-        decoration: cardDeco(radius: 18),
-        clipBehavior: Clip.antiAlias,
-        child: Column(children: children),
-      );
+  const _SettingSwitch({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.value,
+    required this.onChanged,
+  });
 
-  Widget _divider() => const Divider(color: NC.line, height: 1, indent: 16, endIndent: 16);
-
-  Widget _switch({
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required bool value,
-    required ValueChanged<bool> onChanged,
-  }) {
-    return SwitchListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-      secondary: Container(
-        width: 40,
-        height: 40,
-        decoration: BoxDecoration(color: NC.brandSoft, borderRadius: BorderRadius.circular(12)),
-        child: Icon(icon, color: NC.brand, size: 20),
-      ),
-      title: Text(title, style: const TextStyle(color: NC.ink, fontWeight: FontWeight.w700, fontSize: 15)),
-      subtitle: Text(subtitle, style: T.muted),
-      value: value,
-      activeColor: Colors.white,
-      activeTrackColor: NC.brand,
-      inactiveThumbColor: NC.muted,
-      inactiveTrackColor: NC.surfaceAlt,
-      onChanged: onChanged,
-    );
-  }
-
-  Widget _langueTile() {
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-      leading: Container(
-        width: 40,
-        height: 40,
-        decoration: BoxDecoration(color: NC.brandSoft, borderRadius: BorderRadius.circular(12)),
-        child: const Icon(Icons.language_rounded, color: NC.brand, size: 20),
-      ),
-      title: const Text('Langue', style: TextStyle(color: NC.ink, fontWeight: FontWeight.w700, fontSize: 15)),
-      subtitle: Text(_langue, style: T.muted),
-      trailing: const Icon(Icons.chevron_right_rounded, color: NC.faint),
-      onTap: _pickLangue,
-    );
-  }
-
-  void _pickLangue() {
-    const langues = ['Français', 'Bambara', 'English'];
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (_) => Container(
-        decoration: const BoxDecoration(
-          color: NC.paper,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-        ),
-        child: SafeArea(
-          top: false,
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            const SizedBox(height: 10),
-            Container(width: 44, height: 5, decoration: BoxDecoration(color: NC.line, borderRadius: BorderRadius.circular(999))),
-            const SizedBox(height: 12),
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 8),
-              child: Text('Choisir la langue', style: T.title),
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      toggled: value,
+      label: '$title, $subtitle',
+      child: InkWell(
+        onTap: () => onChanged(!value),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: Sp.lg, vertical: Sp.md),
+          child: Row(children: [
+            Container(
+              width: 38,
+              height: 38,
+              decoration:
+                  BoxDecoration(color: NC.brandSoft, borderRadius: BorderRadius.circular(11)),
+              child: Icon(icon, color: NC.brand, size: 19),
             ),
-            for (final l in langues)
-              ListTile(
-                title: Text(l, style: const TextStyle(color: NC.ink, fontWeight: FontWeight.w600, fontSize: 15)),
-                trailing: _langue == l ? const Icon(Icons.check_rounded, color: NC.brand) : null,
-                onTap: () {
-                  setState(() => _langue = l);
-                  Navigator.pop(context);
-                  _snack('Langue : $l');
-                },
-              ),
-            const SizedBox(height: 8),
+            const SizedBox(width: Sp.md),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(title,
+                    style: const TextStyle(
+                        color: NC.ink, fontWeight: FontWeight.w600, fontSize: 15)),
+                const SizedBox(height: 2),
+                Text(subtitle, style: T.muted, maxLines: 2, overflow: TextOverflow.ellipsis),
+              ]),
+            ),
+            const SizedBox(width: Sp.sm),
+            Switch(
+              value: value,
+              onChanged: onChanged,
+              activeThumbColor: Colors.white,
+              activeTrackColor: NC.brand,
+              inactiveThumbColor: NC.muted,
+              inactiveTrackColor: NC.surfaceAlt,
+            ),
           ]),
         ),
       ),
     );
   }
-
-  Widget _nav(IconData icon, String title, VoidCallback onTap) {
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-      leading: Container(
-        width: 40,
-        height: 40,
-        decoration: BoxDecoration(color: NC.brandSoft, borderRadius: BorderRadius.circular(12)),
-        child: Icon(icon, color: NC.brand, size: 20),
-      ),
-      title: Text(title, style: const TextStyle(color: NC.ink, fontWeight: FontWeight.w700, fontSize: 15)),
-      trailing: const Icon(Icons.chevron_right_rounded, color: NC.faint),
-      onTap: onTap,
-    );
-  }
 }
 
-class _VersionTile extends StatelessWidget {
-  const _VersionTile();
+/// Ligne purement informative (pas de chevron, pas d'action).
+class _InfoRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  final bool neutral;
+
+  const _InfoRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+    this.neutral = false,
+  });
+
   @override
   Widget build(BuildContext context) {
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-      leading: Container(
-        width: 40,
-        height: 40,
-        decoration: BoxDecoration(color: NC.surfaceAlt, borderRadius: BorderRadius.circular(12)),
-        child: const Icon(Icons.info_outline_rounded, color: NC.muted, size: 20),
-      ),
-      title: const Text('Version', style: TextStyle(color: NC.ink, fontWeight: FontWeight.w700, fontSize: 15)),
-      trailing: const Text('1.0.0', style: TextStyle(color: NC.faint, fontWeight: FontWeight.w700)),
+    final accent = neutral ? NC.muted : NC.brand;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: Sp.lg, vertical: Sp.md + 2),
+      child: Row(children: [
+        Container(
+          width: 38,
+          height: 38,
+          decoration: BoxDecoration(
+            color: neutral ? NC.surfaceAlt : NC.brandSoft,
+            borderRadius: BorderRadius.circular(11),
+          ),
+          child: Icon(icon, color: accent, size: 19),
+        ),
+        const SizedBox(width: Sp.md),
+        Expanded(
+          child: Text(label,
+              style: const TextStyle(color: NC.ink, fontWeight: FontWeight.w600, fontSize: 15)),
+        ),
+        Text(value, style: const TextStyle(color: NC.faint, fontWeight: FontWeight.w700)),
+      ]),
     );
   }
 }

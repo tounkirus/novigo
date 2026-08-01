@@ -113,7 +113,7 @@ class _ChatScreenState extends State<ChatScreen> {
             builder: (_) => ChatThreadScreen(title: c.title, conversationId: c.conversationId))),
         child: Container(
           padding: const EdgeInsets.all(14),
-          decoration: cardDeco(radius: 18),
+          decoration: cardDeco(radius: R.lg),
           child: Row(children: [
             Container(
               width: 52,
@@ -151,7 +151,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       constraints: const BoxConstraints(minWidth: 20),
                       height: 20,
                       padding: const EdgeInsets.symmetric(horizontal: 6),
-                      decoration: BoxDecoration(color: NC.brand, borderRadius: BorderRadius.circular(999)),
+                      decoration: BoxDecoration(color: NC.brand, borderRadius: BorderRadius.circular(R.pill)),
                       alignment: Alignment.center,
                       child: Text('${c.unread}',
                           style: const TextStyle(

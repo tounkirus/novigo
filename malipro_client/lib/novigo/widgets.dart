@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
+
+import 'motion.dart';
 import 'theme.dart';
-import 'models.dart';
-import 'favorites.dart';
 
 /// Image asset avec coins arrondis + fond de remplissage pendant le décodage.
 class Img extends StatelessWidget {
@@ -33,14 +33,35 @@ class Img extends StatelessWidget {
   Widget _image() {
     if (asset.isEmpty) return _placeholder();
     if (asset.startsWith('http')) {
-      return Image.network(asset,
-          width: width, height: height, fit: fit, gaplessPlayback: true,
-          errorBuilder: (_, __, ___) => _placeholder());
+      return Image.network(
+        asset,
+        width: width,
+        height: height,
+        fit: fit,
+        gaplessPlayback: true,
+        // Une photo du catalogue qui n'arrive pas laisse la place à un visuel
+        // embarqué plutôt qu'à une icône : la grille reste présentable hors ligne.
+        errorBuilder: (_, __, ___) => Image.asset(_bundledFallback(),
+            width: width, height: height, fit: fit,
+            errorBuilder: (_, __, ___) => _placeholder()),
+        frameBuilder: (_, child, frame, wasSync) {
+          if (wasSync || frame != null) return child;
+          return _loadingTile();
+        },
+      );
     }
     return Image.asset(asset,
         width: width, height: height, fit: fit, gaplessPlayback: true,
         errorBuilder: (_, __, ___) => _placeholder());
   }
+
+  /// Visuel embarqué déterministe (même URL -> même repli, pas de scintillement).
+  String _bundledFallback() {
+    final h = asset.hashCode.abs();
+    return 'assets/img/store_${h % 6 + 1}.jpg';
+  }
+
+  Widget _loadingTile() => Shimmer(width: width, height: height, radius: radius);
 
   Widget _placeholder() =>
       const Center(child: Icon(Icons.image_outlined, color: NC.faint, size: 22));
@@ -64,7 +85,14 @@ class Pill extends StatelessWidget {
       ),
       child: Row(mainAxisSize: MainAxisSize.min, children: [
         if (icon != null) ...[Icon(icon, size: 13, color: color), const SizedBox(width: 4)],
-        Text(text, style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: color)),
+        // Une pastille posée dans une largeur contrainte (quartier au nom long,
+        // police agrandie) rogne son libellé au lieu de déborder de la carte.
+        Flexible(
+          child: Text(text,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: color)),
+        ),
       ]),
     );
   }
@@ -81,97 +109,17 @@ class Stars extends StatelessWidget {
       const SizedBox(width: 3),
       Text(rating.toStringAsFixed(1),
           style: const TextStyle(fontWeight: FontWeight.w800, color: NC.ink, fontSize: 14)),
+      // Le nombre d'avis est l'élément le moins critique de la ligne : c'est lui
+      // qui cède quand la place manque, plutôt que de faire déborder la note.
       if (reviews != null)
-        Text('  (${reviews! >= 999 ? '999+' : reviews})',
-            style: const TextStyle(color: NC.muted, fontSize: 13)),
+        Flexible(
+          child: Text('  (${reviews! >= 999 ? '999+' : reviews})',
+              maxLines: 1,
+              overflow: TextOverflow.clip,
+              style: const TextStyle(color: NC.muted, fontSize: 13)),
+        ),
     ]);
   }
-}
-
-/// Grande carte commerce (accueil + listing), calibre Uber Eats / Yango.
-class StoreCard extends StatelessWidget {
-  final Store store;
-  final VoidCallback onTap;
-  const StoreCard({super.key, required this.store, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Container(
-        decoration: cardDeco(radius: 22),
-        clipBehavior: Clip.antiAlias,
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Stack(children: [
-            Img(store.image, height: 170, width: double.infinity, fit: BoxFit.cover),
-            if (store.freeDelivery)
-              const Positioned(
-                  left: 12,
-                  top: 12,
-                  child: Pill('Livraison offerte', color: Colors.white, bg: NC.brand, icon: Icons.pedal_bike)),
-            Positioned(
-              right: 12,
-              top: 12,
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () => favorites.toggle(store.id),
-                child: Container(
-                  width: 34,
-                  height: 34,
-                  decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.45), shape: BoxShape.circle),
-                  child: ListenableBuilder(
-                    listenable: favorites,
-                    builder: (_, __) {
-                      final on = favorites.contains(store.id);
-                      return Icon(on ? Icons.favorite : Icons.favorite_border,
-                          size: 18, color: on ? NC.brand : Colors.white);
-                    },
-                  ),
-                ),
-              ),
-            ),
-            Positioned(
-              left: 12,
-              bottom: 12,
-              child: Row(children: [
-                Pill('${store.etaMin} min', color: Colors.white, icon: Icons.access_time_rounded),
-                if (store.verified) ...[
-                  const SizedBox(width: 6),
-                  const Pill('Vérifié', color: Colors.white, icon: Icons.verified_rounded),
-                ],
-              ]),
-            ),
-          ]),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Row(children: [
-                Expanded(child: Text(store.name, style: T.title, maxLines: 1, overflow: TextOverflow.ellipsis)),
-                Stars(store.rating, reviews: store.reviews),
-              ]),
-              const SizedBox(height: 4),
-              Text(store.cuisine, style: T.muted, maxLines: 1, overflow: TextOverflow.ellipsis),
-              const SizedBox(height: 10),
-              Row(children: [
-                _meta(Icons.pedal_bike, store.freeDelivery ? 'Gratuit' : fcfa(store.deliveryFee)),
-                const SizedBox(width: 16),
-                _meta(Icons.place_outlined, '${store.distanceKm} km'),
-                const SizedBox(width: 16),
-                _meta(Icons.storefront_outlined, store.district),
-              ]),
-            ]),
-          ),
-        ]),
-      ),
-    );
-  }
-
-  Widget _meta(IconData i, String t) => Row(mainAxisSize: MainAxisSize.min, children: [
-        Icon(i, size: 15, color: NC.faint),
-        const SizedBox(width: 4),
-        Flexible(child: Text(t, style: const TextStyle(color: NC.muted, fontSize: 12.5), overflow: TextOverflow.ellipsis)),
-      ]);
 }
 
 /// Stepper quantité (− n +).

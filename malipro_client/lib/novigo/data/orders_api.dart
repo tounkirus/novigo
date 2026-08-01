@@ -94,6 +94,105 @@ class OrderDto {
   }
 }
 
+/// Ligne d'une commande (GET /orders/:id).
+class OrderLineDto {
+  final String name;
+  final int quantity;
+  final int unitPrice;
+  const OrderLineDto({required this.name, required this.quantity, required this.unitPrice});
+
+  int get total => quantity * unitPrice;
+
+  factory OrderLineDto.fromJson(Map j) => OrderLineDto(
+        name: (j['name'] ?? 'Article').toString(),
+        quantity: (j['quantity'] as num?)?.toInt() ?? 1,
+        unitPrice: _money(j['unitPrice']),
+      );
+}
+
+/// Détail complet d'une commande (GET /orders/:id).
+class OrderDetailDto {
+  final String id;
+  final String reference;
+  final String status;
+  final List<OrderLineDto> items;
+  final int subtotal;
+  final int deliveryFee;
+  final int total;
+  final String? address;
+  final DateTime? createdAt;
+
+  /// Moyen de paiement réellement enregistré (`ORANGE_MONEY`, `WAVE`, `CASH`…).
+  /// Le backend le renvoie déjà ; l'écran de détail affichait jusqu'ici
+  /// « NOVIGO Pay » en dur, y compris pour une commande réglée en espèces.
+  final String? paymentMethod;
+
+  const OrderDetailDto({
+    required this.id,
+    required this.reference,
+    required this.status,
+    required this.items,
+    required this.subtotal,
+    required this.deliveryFee,
+    required this.total,
+    this.address,
+    this.createdAt,
+    this.paymentMethod,
+  });
+
+  /// Libellé du moyen de paiement, ou `null` si le backend ne l'a pas fourni —
+  /// auquel cas l'écran n'affiche pas la ligne plutôt que d'en inventer une.
+  String? get paymentLabel {
+    switch ((paymentMethod ?? '').toUpperCase()) {
+      case 'ORANGE_MONEY':
+        return 'Orange Money';
+      case 'WAVE':
+        return 'Wave';
+      case 'CASH':
+        return 'Espèces à la livraison';
+      case 'WALLET':
+      case 'NOVIGO_PAY':
+        return 'NOVIGO Pay';
+      case 'CARD':
+        return 'Carte bancaire';
+      default:
+        return null;
+    }
+  }
+
+  factory OrderDetailDto.fromJson(Map j) {
+    final addr = j['deliveryAddress'];
+    final parts = addr is Map
+        ? [addr['line1'], addr['district'], addr['city']]
+            .where((v) => v != null && v.toString().trim().isNotEmpty)
+            .map((v) => v.toString())
+            .toList()
+        : const <String>[];
+    return OrderDetailDto(
+      id: (j['id'] ?? '').toString(),
+      reference: (j['reference'] ?? '').toString(),
+      status: (j['status'] ?? '').toString().toUpperCase(),
+      items: ((j['items'] as List?) ?? const [])
+          .whereType<Map>()
+          .map(OrderLineDto.fromJson)
+          .toList(),
+      subtotal: _money(j['subtotal']),
+      deliveryFee: _money(j['deliveryFee']),
+      total: _money(j['total']),
+      address: parts.isEmpty ? null : parts.join(' · '),
+      createdAt: DateTime.tryParse((j['createdAt'] ?? '').toString())?.toLocal(),
+      paymentMethod: j['paymentMethod']?.toString(),
+    );
+  }
+}
+
+/// Détail d'une commande (GET /orders/:id via Gateway).
+Future<OrderDetailDto?> fetchLiveOrder(String id) async {
+  await session.ensureAuth();
+  final data = await api.get('/orders/$id');
+  return data is Map ? OrderDetailDto.fromJson(data) : null;
+}
+
 /// Liste des commandes de l'utilisateur (GET /orders via Gateway).
 Future<List<OrderDto>> fetchLiveOrders({int limit = 20}) async {
   await session.ensureAuth();

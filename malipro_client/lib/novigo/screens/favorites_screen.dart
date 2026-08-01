@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import '../theme.dart';
+
 import '../data/catalog_model.dart';
-import '../widgets.dart';
 import '../favorites.dart';
+import '../ui/ui.dart';
 import 'store.dart';
 
 class FavoritesScreen extends StatelessWidget {
@@ -10,40 +10,40 @@ class FavoritesScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final gutter = Rs.of(context).gutter;
     return Scaffold(
-      appBar: AppBar(title: const Text('Favoris', style: T.title), leading: const BackButton(color: NC.ink)),
+      appBar: AppBar(
+        title: const Text('Favoris', style: T.title),
+        leading: const BackButton(color: NC.ink),
+      ),
       body: ListenableBuilder(
         listenable: Listenable.merge([favorites, catalog]),
-        builder: (_, __) {
+        builder: (context, _) {
           final favs = catalog.allStores.where((s) => favorites.contains(s.id)).toList();
-          if (favs.isEmpty) return _empty();
-          return ListView.separated(
-            padding: const EdgeInsets.all(16),
-            itemCount: favs.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 16),
-            itemBuilder: (_, i) => StoreCard(
-              store: favs[i],
-              onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => StoreScreen(store: favs[i]))),
+          if (favs.isEmpty) {
+            return const NovigoEmptyState.empty(
+              icon: Icons.favorite_border,
+              title: 'Aucun favori',
+              message: 'Touchez le cœur sur un commerce pour le retrouver ici.',
+            );
+          }
+          return NovigoContentWidth(
+            child: ListView.separated(
+              padding: EdgeInsets.fromLTRB(gutter, Sp.lg, gutter, Sp.xxl),
+              itemCount: favs.length,
+              separatorBuilder: (_, __) => const SizedBox(height: Sp.lg),
+              itemBuilder: (_, i) => FadeSlideIn(
+                index: i,
+                child: NovigoMerchantCard(
+                  store: favs[i],
+                  onTap: () => Navigator.of(context)
+                      .push(MaterialPageRoute(builder: (_) => StoreScreen(store: favs[i]))),
+                ),
+              ),
             ),
           );
         },
       ),
     );
   }
-
-  Widget _empty() => Center(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Container(
-            width: 88, height: 88,
-            decoration: BoxDecoration(color: NC.surface, shape: BoxShape.circle),
-            child: const Icon(Icons.favorite_border, color: NC.faint, size: 40),
-          ),
-          const SizedBox(height: 16),
-          const Text('Aucun favori', style: T.h2),
-          const SizedBox(height: 6),
-          const Text('Touchez le cœur sur un commerce\npour le retrouver ici.',
-              style: T.muted, textAlign: TextAlign.center),
-        ]),
-      );
 }

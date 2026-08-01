@@ -126,7 +126,7 @@ class _VehicleCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      decoration: cardDeco(radius: 22),
+      decoration: cardDeco(radius: R.xl),
       clipBehavior: Clip.antiAlias,
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Stack(children: [
@@ -205,7 +205,7 @@ class _Perk extends StatelessWidget {
     return Expanded(
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
-        decoration: cardDeco(radius: 16),
+        decoration: cardDeco(radius: R.md),
         child: Row(children: [
           Container(
             width: 38,
