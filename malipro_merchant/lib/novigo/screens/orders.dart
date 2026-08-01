@@ -156,9 +156,11 @@ class OrderCard extends StatelessWidget {
           Text(order.itemsLabel, style: T.body, maxLines: 2, overflow: TextOverflow.ellipsis),
           const SizedBox(height: 10),
           Row(children: [
-            const Icon(Icons.shopping_basket_rounded, size: 15, color: NC.faint),
-            const SizedBox(width: 5),
-            Text('${order.itemCount} article${order.itemCount > 1 ? 's' : ''}', style: T.muted),
+            if (order.itemCount > 0) ...[
+              const Icon(Icons.shopping_basket_rounded, size: 15, color: NC.faint),
+              const SizedBox(width: 5),
+              Text('${order.itemCount} article${order.itemCount > 1 ? 's' : ''}', style: T.muted),
+            ],
             const Spacer(),
             Text(fcfa(order.total), style: T.price),
           ]),

@@ -10,16 +10,25 @@ int _amount(dynamic money) {
   return 0;
 }
 
-/// Statut backend (PENDING|ACCEPTED|PREPARING|READY|DELIVERED|CANCELLED) → statut UI.
+/// Statut backend → statut UI marchand.
+/// Cycle backend : PENDING → CONFIRMED → PREPARING → READY → ASSIGNED →
+/// PICKED_UP → IN_TRANSIT → DELIVERED (ou CANCELLED). Le marchand collapse
+/// « acceptée/en cuisine » (CONFIRMED+PREPARING) en une seule étape
+/// « En préparation », et considère la commande terminée dès qu'un livreur la
+/// prend en charge (ASSIGNED+).
 String statusFromBackend(String? s) {
   switch ((s ?? '').toUpperCase()) {
     case 'PENDING':
       return MStatus.nouvelle;
-    case 'ACCEPTED':
+    case 'CONFIRMED': // ← accept backend = CONFIRMED (et non ACCEPTED) : sans ce cas
+    case 'ACCEPTED':  //   la commande acceptée retombait dans « Nouvelles ».
     case 'PREPARING':
       return MStatus.preparation;
     case 'READY':
       return MStatus.prete;
+    case 'ASSIGNED':
+    case 'PICKED_UP':
+    case 'IN_TRANSIT':
     case 'DELIVERED':
     case 'COMPLETED':
     case 'CANCELLED':
@@ -73,7 +82,9 @@ MOrder merchantOrderFromJson(Map j) {
   final reference = (j['reference'] ?? backendId).toString();
   final customer = (j['customerName'] ?? 'Client NOVIGO').toString();
   final total = _amount(j['total']);
-  final itemsCount = (j['itemsCount'] as num?)?.toInt() ?? (counted == 0 ? 1 : counted);
+  // 0 = décompte inconnu (charge utile partielle) : la carte masque la ligne
+  // plutôt que d'annoncer « 1 article » sur une commande qui en contient plusieurs.
+  final itemsCount = (j['itemsCount'] as num?)?.toInt() ?? counted;
 
   return MOrder(
     id: reference.isNotEmpty ? reference : backendId,

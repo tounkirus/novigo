@@ -23,6 +23,12 @@ class DeliveryRequest {
   final int itemsCount;
   final int etaMin;
   final String customerName;
+  final String? reference; // référence commande (MLP-…) quand elle est connue
+  // Décision du NOVIGO Brain pour CE livreur : score de compatibilité sur 100
+  // (0 = non calculé) et raisons lisibles. L'app affiche, elle ne recalcule pas.
+  final int brainScore;
+  final List<String> brainReasons;
+  final bool recommended;
   const DeliveryRequest({
     required this.id,
     required this.storeName,
@@ -34,6 +40,10 @@ class DeliveryRequest {
     required this.itemsCount,
     required this.etaMin,
     required this.customerName,
+    this.reference,
+    this.brainScore = 0,
+    this.brainReasons = const [],
+    this.recommended = false,
   });
 }
 

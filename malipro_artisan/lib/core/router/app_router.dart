@@ -6,15 +6,21 @@ import '../../features/auth/presentation/otp_screen.dart';
 import '../../features/home/home_shell.dart';
 import '../../features/chat/presentation/conversations_screen.dart';
 import '../../features/chat/presentation/chat_screen.dart';
+import '../../novigo/data/env.dart';
+import '../../novigo/screens/voice_settings.dart';
 
 GoRouter buildRouter(Ref ref) {
   final status = ref.read(authStatusProvider);
   return GoRouter(
-    initialLocation: '/',
+    // Démonstration : ouvrir directement les annonces vocales.
+    initialLocation: NovigoEnv.voiceHome ? '/voix' : '/',
     refreshListenable: status,
     redirect: (context, state) {
       if (!status.ready) return null;
       final loc = state.matchedLocation;
+      // Les réglages vocaux restent atteignables même avant connexion : le module
+      // vocal a sa propre session NOVIGO.
+      if (loc == '/voix') return null;
       final onAuth = loc == '/login' || loc.startsWith('/otp');
       if (!status.loggedIn) return onAuth ? null : '/login';
       if (onAuth) return '/';
@@ -27,6 +33,7 @@ GoRouter buildRouter(Ref ref) {
         builder: (_, s) => OtpScreen(phone: s.uri.queryParameters['phone'] ?? ''),
       ),
       GoRoute(path: '/', builder: (_, __) => const HomeShell()),
+      GoRoute(path: '/voix', builder: (_, __) => const VoiceSettingsScreen()),
       GoRoute(path: '/chat', builder: (_, __) => const ConversationsScreen()),
       GoRoute(
         path: '/chat/:id',

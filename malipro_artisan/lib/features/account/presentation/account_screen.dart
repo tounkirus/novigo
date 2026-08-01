@@ -135,6 +135,21 @@ class AccountScreen extends ConsumerWidget {
               borderRadius: BorderRadius.circular(12),
               side: const BorderSide(color: AppColors.line)),
           child: ListTile(
+            leading: const Icon(Icons.campaign_outlined, color: AppColors.brand),
+            title: const Text('Annonces vocales'),
+            subtitle: const Text('Être prévenu à la voix d’une nouvelle demande',
+                style: TextStyle(fontSize: 11, color: AppColors.muted)),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => context.push('/voix'),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Card(
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: const BorderSide(color: AppColors.line)),
+          child: ListTile(
             leading: const Icon(Icons.chat_bubble_outline, color: AppColors.brand),
             title: const Text('Messages'),
             subtitle: const Text('Conversations avec les clients',

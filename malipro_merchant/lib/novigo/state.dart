@@ -5,11 +5,16 @@ import 'data/env.dart';
 import 'data/session.dart';
 import 'data/merchant_api.dart' as mapi;
 import 'data/realtime_client.dart';
+import 'data/brain_api.dart';
 
 /// État global du marchand — mock offline par défaut, mutations réactives via
 /// ChangeNotifier. En mode live (`NovigoEnv.live`), les commandes et leur cycle
 /// de vie sont synchronisés avec le Gateway (repli gracieux sur le mock si KO).
 class MerchantState extends ChangeNotifier {
+  /// Ce que le NOVIGO Brain a appris de ce commerce (null tant qu'il n'a pas
+  /// répondu ou hors mode live : l'écran masque alors la section).
+  BrainMerchantInsights? brainInsights;
+
   bool open = true;
   final List<MOrder> orders = seedOrders();
   final List<MProduct> products = seedProducts();
@@ -53,6 +58,9 @@ class MerchantState extends ChangeNotifier {
       }
     } catch (_) {/* best-effort */}
 
+    // NOVIGO Brain : conseils issus de ce qu'il a observé de ce commerce.
+    await refreshBrain();
+
     // Temps réel : le serveur pousse dans la room du marchand (pas de subscribe).
     _realtime.connectMerchant(
       onNewOrder: (o) {
@@ -68,6 +76,20 @@ class MerchantState extends ChangeNotifier {
         }
       },
     );
+  }
+
+  /// Recharge les conseils du Brain (GET /brain/insights/merchant).
+  Future<void> refreshBrain() async {
+    if (!NovigoEnv.live) return;
+    try {
+      final insights = await merchantBrain.fetchInsights();
+      if (insights != null) {
+        brainInsights = insights;
+        notifyListeners();
+      }
+    } catch (e) {
+      debugPrint('[Merchant] conseils Brain indisponibles: $e'); // section masquée
+    }
   }
 
   /// Pousse une transition vers le Gateway (fire-and-forget). L'état local a déjà
@@ -98,7 +120,13 @@ class MerchantState extends ChangeNotifier {
     if (o != null && o.status == MStatus.nouvelle) {
       o.status = MStatus.preparation;
       notifyListeners();
-      _pushLive(o.backendId, mapi.acceptOrder);
+      // Le marchand collapse « accepter » + « lancer la préparation » : on pousse
+      // les deux transitions backend (PENDING→CONFIRMED→PREPARING) pour que le
+      // « Marquer prête » ultérieur (/ready, exige PREPARING) reste valide.
+      _pushLive(o.backendId, (bid) async {
+        await mapi.acceptOrder(bid);
+        await mapi.setPreparing(bid);
+      });
     }
   }
 

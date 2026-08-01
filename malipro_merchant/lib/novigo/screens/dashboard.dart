@@ -3,6 +3,7 @@ import '../theme.dart';
 import '../models.dart';
 import '../state.dart';
 import '../data.dart';
+import '../brain_widgets.dart';
 import 'orders.dart';
 
 class DashboardScreen extends StatelessWidget {
@@ -26,6 +27,11 @@ class DashboardScreen extends StatelessWidget {
             _kpiRow(),
             const SizedBox(height: 18),
             _weekCard(),
+            // Conseils du NOVIGO Brain : préparation apprise, confiance, pointe.
+            if (merchant.brainInsights != null) ...[
+              const SizedBox(height: 18),
+              BrainInsightsCard(insights: merchant.brainInsights!),
+            ],
             const SizedBox(height: 22),
             Row(children: [
               const Text('Commandes à traiter', style: T.h2),

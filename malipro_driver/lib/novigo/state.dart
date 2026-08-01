@@ -1,9 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'models.dart';
 import 'data.dart';
 import 'data/env.dart';
 import 'data/session.dart';
 import 'data/driver_api.dart';
+import 'data/brain_api.dart';
+import 'data/voice_api.dart';
+import 'voice_service.dart';
 import 'data/realtime_client.dart';
 
 /// État global du livreur — mock offline par défaut, réactif via ChangeNotifier.
@@ -20,23 +25,45 @@ class DriverState extends ChangeNotifier {
   // Listes mock
   final List<DeliveryRequest> available = List.of(kInitialAvailable);
   final List<PastDelivery> history = List.of(kInitialHistory);
+
+  /// Missions ouvertes tous métiers confondus (colis, course, dépannage…),
+  /// classées POUR moi par le NOVIGO Brain. Vide hors ligne / hors mode live.
+  final List<BrainMission> brainMissions = [];
   final List<EarningTx> earnings = List.of(kInitialEarnings);
 
   // Profil live (renseigné par goLive en mode LIVE ; sinon valeurs démo).
   String? driverName;
+  String? driverPhone;
   int totalDeliveries = 0;
 
-  // Compteurs du jour (valeurs de départ démo)
+  /// Nom affiché : compte connecté en live, libellé générique sinon.
+  String get displayName => driverName ?? 'Livreur NOVIGO';
+
+  /// Prénom seul, pour les formules d'adresse (« Merci Moussa »).
+  String get firstName => displayName.split(' ').first;
+
+  /// Initiales pour l'avatar (2 lettres max).
+  String get initials {
+    final words = displayName.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+    if (words.isEmpty) return 'NV';
+    if (words.length == 1) {
+      final w = words.first;
+      return (w.length >= 2 ? w.substring(0, 2) : w).toUpperCase();
+    }
+    return (words[0][0] + words[1][0]).toUpperCase();
+  }
+
+  // Compteurs (valeurs de départ démo, remplacées par /drivers/me/earnings en live)
   int _todayEarnings = 12400;
   int _todayCount = 8;
   double rating = 4.9;
-  final double hoursOnline = 5.5;
-  int _available = 63200; // gains disponibles au retrait
+  int _available = 63200; // cumul des courses terminées
+  int _week = 74600;
 
   int get todayEarnings => _todayEarnings;
   int get todayCount => _todayCount;
   int get availableEarnings => _available;
-  int get weekEarnings => 74600;
+  int get weekEarnings => _week;
 
   bool get hasActive => active != null;
 
@@ -85,14 +112,28 @@ class DriverState extends ChangeNotifier {
       final profile = await driverApi.fetchProfile();
       if (profile != null) {
         driverName = profile.name;
+        driverPhone = profile.phone;
         totalDeliveries = profile.totalDeliveries;
         if (profile.rating > 0) rating = profile.rating;
         online = profile.isAvailable;
         notifyListeners();
       }
-      realtime.connectDriver(onNotification: (_) {
-        if (online) _loadAvailable();
-      });
+      await _loadEarnings();
+      await _loadHistory();
+      // Voix : préparée EN PARALLÈLE. Le moteur vocal d'un téléphone peut être
+      // lent (ou absent) : l'attendre retarderait la connexion temps réel, donc
+      // les courses elles-mêmes. La voix n'est jamais sur le chemin critique.
+      unawaited(voice.init().then((_) => voice.loadSettings()));
+      realtime.connectDriver(
+        onNotification: (_) {
+          if (online) _loadAvailable();
+        },
+        // Annonce vocale d'une mission attribuée : lue immédiatement.
+        onVoice: (d) {
+          voice.announce(VoiceAnnouncement.fromJson(d));
+          _loadBrainMissions();
+        },
+      );
       if (online) await _loadAvailable();
     } catch (e) {
       debugPrint('[Driver] live indisponible: $e'); // le mock reste en place
@@ -110,13 +151,92 @@ class DriverState extends ChangeNotifier {
     }
   }
 
+  /// Gains réels du livreur (courses terminées) — jamais bloquant.
+  Future<void> _loadEarnings() async {
+    try {
+      final e = await driverApi.fetchEarnings();
+      if (e == null) return;
+      _todayEarnings = e.today;
+      _todayCount = e.todayCount;
+      _week = e.week;
+      _available = e.total;
+      totalDeliveries = e.totalCount;
+      notifyListeners();
+    } catch (err) {
+      debugPrint('[Driver] fetchEarnings échec: $err'); // conserve les compteurs courants
+    }
+  }
+
+  /// Historique réel : courses terminées du compte, pas le jeu de démo.
+  /// Les retraits ne sont pas exposés par le backend : la liste n'affiche donc
+  /// que des gains de course, aucune ligne inventée.
+  Future<void> _loadHistory() async {
+    try {
+      final rows = await driverApi.fetchHistory();
+      history
+        ..clear()
+        ..addAll(rows);
+      earnings
+        ..clear()
+        ..addAll(rows.map((d) => EarningTx(
+              label: 'Course · ${d.storeName}',
+              when: d.when,
+              amount: d.payout,
+              isPayout: true,
+            )));
+      notifyListeners();
+    } catch (err) {
+      debugPrint('[Driver] fetchHistory échec: $err');
+    }
+  }
+
+  /// Rafraîchit la liste des courses libres et les gains (pull-to-refresh).
+  Future<void> refreshAvailable() async {
+    if (!NovigoEnv.live) return;
+    await _loadEarnings();
+    await _loadHistory();
+    if (online) {
+      await _loadAvailable();
+      await _loadBrainMissions();
+    }
+  }
+
+  /// Missions classées par le Brain (GET /brain/missions/available).
+  /// Best-effort : sans backend, la liste reste vide et l'écran n'affiche rien.
+  Future<void> _loadBrainMissions() async {
+    if (!NovigoEnv.live) return;
+    try {
+      final rows = await driverBrain.fetchRankedMissions(limit: 10);
+      brainMissions
+        ..clear()
+        ..addAll(rows);
+      notifyListeners();
+    } catch (e) {
+      debugPrint('[Driver] missions Brain indisponibles: $e');
+    }
+  }
+
+  /// J'accepte une mission proposée par le Brain (hors file livraison).
+  Future<void> acceptBrainMission(BrainMission m) async {
+    brainMissions.removeWhere((x) => x.id == m.id);
+    notifyListeners();
+    try {
+      await driverBrain.accept(m.id);
+    } catch (e) {
+      debugPrint('[Driver] accept mission Brain échec: $e');
+    }
+  }
+
   Future<void> _loadAvailable() async {
     try {
       final live = await driverApi.fetchAvailable(limit: 20);
       available
         ..clear()
+        // Le backend renvoie déjà les courses CLASSÉES par le Brain pour ce
+        // livreur (score + raisons) : on conserve son ordre tel quel.
         ..addAll(live);
       notifyListeners();
+      await _loadBrainMissions();
     } catch (e) {
       debugPrint('[Driver] fetchAvailable échec: $e'); // conserve la liste courante
     }
@@ -141,6 +261,9 @@ class DriverState extends ChangeNotifier {
   Future<void> _completeLive(String id) async {
     try {
       await driverApi.complete(id);
+      // Recale compteurs et historique : la course vient d'être encaissée.
+      await _loadEarnings();
+      await _loadHistory();
     } catch (e) {
       debugPrint('[Driver] complete échec: $e');
     }

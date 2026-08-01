@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import '../theme.dart';
+import '../state.dart';
+import '../voice_service.dart';
+import 'voice_settings.dart';
 
 class AccountScreen extends StatelessWidget {
   const AccountScreen({super.key});
@@ -8,7 +11,9 @@ class AccountScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return SafeArea(
       bottom: false,
-      child: ListView(padding: const EdgeInsets.all(16), children: [
+      child: ListenableBuilder(
+        listenable: driver,
+        builder: (context, _) => ListView(padding: const EdgeInsets.all(16), children: [
         const Text('Compte', style: T.h1),
         const SizedBox(height: 16),
         // Profil livreur
@@ -21,14 +26,15 @@ class AccountScreen extends StatelessWidget {
               height: 60,
               decoration: const BoxDecoration(gradient: NC.brandGradient, shape: BoxShape.circle),
               alignment: Alignment.center,
-              child: const Text('MK', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 22)),
+              child: Text(driver.initials,
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 22)),
             ),
             const SizedBox(width: 14),
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                const Text('Moussa Keïta', style: T.title),
+                Text(driver.displayName, style: T.title, maxLines: 1, overflow: TextOverflow.ellipsis),
                 const SizedBox(height: 3),
-                const Text('+223 76 12 34 56', style: T.muted),
+                Text(driver.driverPhone ?? '—', style: T.muted),
                 const SizedBox(height: 8),
                 Row(children: [
                   Container(
@@ -41,10 +47,11 @@ class AccountScreen extends StatelessWidget {
                     ]),
                   ),
                   const SizedBox(width: 8),
-                  const Row(mainAxisSize: MainAxisSize.min, children: [
-                    Icon(Icons.star_rounded, color: NC.gold, size: 15),
-                    SizedBox(width: 3),
-                    Text('4.9', style: TextStyle(color: NC.ink, fontWeight: FontWeight.w800, fontSize: 13)),
+                  Row(mainAxisSize: MainAxisSize.min, children: [
+                    const Icon(Icons.star_rounded, color: NC.gold, size: 15),
+                    const SizedBox(width: 3),
+                    Text(driver.rating.toStringAsFixed(1),
+                        style: const TextStyle(color: NC.ink, fontWeight: FontWeight.w800, fontSize: 13)),
                   ]),
                 ]),
               ]),
@@ -81,6 +88,15 @@ class AccountScreen extends StatelessWidget {
         ]),
         const SizedBox(height: 14),
         _group([
+          // Annonces vocales : le livreur règle ce qu'il entend (Voice Dispatch).
+          _tile(
+            Icons.campaign_rounded,
+            'Annonces vocales',
+            trailingText: voice.settings.enabled ? voice.settings.languageLabel : 'Désactivées',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const VoiceSettingsScreen()),
+            ),
+          ),
           _tile(Icons.help_outline_rounded, 'Aide & support'),
           _tile(Icons.settings_outlined, 'Paramètres'),
           _tile(Icons.logout_rounded, 'Déconnexion', danger: true),
@@ -90,7 +106,8 @@ class AccountScreen extends StatelessWidget {
           child: Text('NOVIGO Livreur · v1.0.0',
               style: TextStyle(color: NC.faint, fontSize: 12.5, fontWeight: FontWeight.w500)),
         ),
-      ]),
+        ]),
+      ),
     );
   }
 
@@ -100,7 +117,10 @@ class AccountScreen extends StatelessWidget {
         child: Column(children: children),
       );
 
-  Widget _tile(IconData icon, String label, {bool danger = false, String? trailingText}) => ListTile(
+  Widget _tile(IconData icon, String label,
+          {bool danger = false, String? trailingText, VoidCallback? onTap}) =>
+      ListTile(
+        onTap: onTap,
         leading: Icon(icon, color: danger ? NC.error : NC.brand),
         title: Text(label, style: TextStyle(color: danger ? NC.error : NC.ink, fontWeight: FontWeight.w600)),
         trailing: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -114,6 +134,5 @@ class AccountScreen extends StatelessWidget {
           ],
           const Icon(Icons.chevron_right_rounded, color: NC.faint),
         ]),
-        onTap: () {},
       );
 }

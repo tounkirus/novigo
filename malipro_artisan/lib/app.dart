@@ -5,6 +5,7 @@ import 'core/router/app_router.dart';
 import 'core/theme.dart';
 import 'features/auth/application/auth_controller.dart';
 import 'features/notifications/presentation/push_notification_host.dart';
+import 'novigo/voice_boot.dart';
 
 class MaliproArtisanApp extends ConsumerStatefulWidget {
   const MaliproArtisanApp({super.key});
@@ -18,6 +19,9 @@ class _MaliproArtisanAppState extends ConsumerState<MaliproArtisanApp> {
     super.initState();
     // Instancie AuthController (bootstrap des tokens).
     ref.read(authControllerProvider);
+    // NOVIGO — annonces vocales : session propre + écoute du Gateway.
+    // Sans --dart-define=NOVIGO_LIVE=true, cet appel ne fait rien.
+    startVoiceDispatch();
   }
 
   @override

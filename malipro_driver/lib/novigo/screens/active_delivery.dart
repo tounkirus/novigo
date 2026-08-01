@@ -243,7 +243,7 @@ class _SuccessScreen extends StatelessWidget {
             const SizedBox(height: 24),
             const Text('Livraison terminée', style: T.h1, textAlign: TextAlign.center),
             const SizedBox(height: 8),
-            const Text('Merci Moussa, la course a bien été livrée.',
+            Text('Merci ${driver.firstName}, la course a bien été livrée.',
                 style: T.muted, textAlign: TextAlign.center),
             const SizedBox(height: 24),
             Container(

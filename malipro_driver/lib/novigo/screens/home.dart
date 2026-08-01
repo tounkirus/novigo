@@ -2,10 +2,87 @@ import 'package:flutter/material.dart';
 import '../theme.dart';
 import '../models.dart';
 import '../state.dart';
+import '../brain_widgets.dart';
+import '../data/brain_api.dart' show BrainMission;
 import 'active_delivery.dart';
 
-class HomeScreen extends StatelessWidget {
+/// Tri/filtre appliqué à la file des courses. Le classement par défaut reste
+/// celui du NOVIGO Brain : les autres modes ne sont qu'un confort de lecture,
+/// jamais une contre-décision (principes n°1 et n°2).
+enum _Tri { brain, recommandees, gain, proches }
+
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  final _searchCtrl = TextEditingController();
+  String _query = '';
+  _Tri _tri = _Tri.brain;
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  /// Comparaison insensible à la casse ET aux accents (« Hamdallaye » = « hamdallaye »).
+  static String _norm(String v) => v
+      .toLowerCase()
+      .replaceAll(RegExp('[àâä]'), 'a')
+      .replaceAll(RegExp('[éèêë]'), 'e')
+      .replaceAll(RegExp('[îï]'), 'i')
+      .replaceAll(RegExp('[ôö]'), 'o')
+      .replaceAll(RegExp('[ûüù]'), 'u')
+      .replaceAll('ç', 'c');
+
+  /// Une course correspond si la recherche apparaît dans sa référence, son
+  /// commerce, son client ou l'une de ses adresses.
+  bool _matchCourse(DeliveryRequest r, String q) {
+    if (q.isEmpty) return true;
+    final champs = [r.reference ?? '', r.storeName, r.customerName, r.dropAddress, r.storeAddress];
+    return champs.any((c) => _norm(c).contains(q));
+  }
+
+  bool _matchMission(BrainMission m, String q) {
+    if (q.isEmpty) return true;
+    return [m.reference, m.serviceLabel, m.zone].any((c) => _norm(c).contains(q));
+  }
+
+  /// Courses affichées : filtrées par la recherche, puis ordonnées selon le tri.
+  /// `brain` = ordre renvoyé par le backend (score de compatibilité décroissant).
+  List<DeliveryRequest> get _courses {
+    final q = _norm(_query.trim());
+    final out = driver.available.where((r) => _matchCourse(r, q)).toList();
+    switch (_tri) {
+      case _Tri.recommandees:
+        return out.where((r) => r.recommended).toList();
+      case _Tri.gain:
+        out.sort((a, b) => b.payout.compareTo(a.payout));
+        return out;
+      case _Tri.proches:
+        // Distance inconnue (0) reléguée en fin de liste plutôt qu'en tête.
+        out.sort((a, b) {
+          final da = a.distanceKm > 0 ? a.distanceKm : double.infinity;
+          final db = b.distanceKm > 0 ? b.distanceKm : double.infinity;
+          return da.compareTo(db);
+        });
+        return out;
+      case _Tri.brain:
+        return out;
+    }
+  }
+
+  List<BrainMission> get _missions {
+    final q = _norm(_query.trim());
+    final out = driver.brainMissions.where((m) => _matchMission(m, q)).toList();
+    if (_tri == _Tri.recommandees) return out.where((m) => m.recommended).toList();
+    if (_tri == _Tri.gain) out.sort((a, b) => b.payout.compareTo(a.payout));
+    return out;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -13,7 +90,12 @@ class HomeScreen extends StatelessWidget {
       bottom: false,
       child: ListenableBuilder(
         listenable: driver,
-        builder: (context, _) => ListView(
+        builder: (context, _) => RefreshIndicator(
+          onRefresh: driver.refreshAvailable,
+          color: NC.brand,
+          backgroundColor: NC.surface,
+          child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
           children: [
             _header(),
@@ -25,22 +107,64 @@ class HomeScreen extends StatelessWidget {
             if (driver.online) ...[
               Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
                 const Text('Demandes à proximité', style: T.h2),
-                Text('${driver.available.length}',
-                    style: const TextStyle(color: NC.brand, fontWeight: FontWeight.w800, fontSize: 15)),
+                Text(
+                  // Nombre affiché / total, dès qu'un filtre réduit la liste.
+                  _courses.length == driver.available.length
+                      ? '${driver.available.length}'
+                      : '${_courses.length}/${driver.available.length}',
+                  style: const TextStyle(color: NC.brand, fontWeight: FontWeight.w800, fontSize: 15),
+                ),
               ]),
               const SizedBox(height: 12),
+              _searchField(),
+              const SizedBox(height: 10),
+              _filterChips(),
+              const SizedBox(height: 14),
               if (driver.available.isEmpty)
                 _empty(Icons.hourglass_empty_rounded, 'Aucune demande pour le moment',
                     'De nouvelles courses arrivent bientôt. Restez en ligne.')
+              else if (_courses.isEmpty)
+                _empty(
+                    _tri == _Tri.recommandees ? Icons.auto_awesome : Icons.search_off_rounded,
+                    _tri == _Tri.recommandees
+                        ? 'Aucune course recommandée'
+                        : 'Aucune course ne correspond',
+                    _tri == _Tri.recommandees
+                        ? 'Le Brain n’a rien de fortement compatible pour vous en ce moment.'
+                        : 'Essayez une autre référence, un commerce ou un quartier.')
               else
-                ...driver.available.map((r) => Padding(
+                ..._courses.map((r) => Padding(
                       padding: const EdgeInsets.only(bottom: 14),
                       child: _RequestCard(req: r),
                     )),
+              if (_missions.isNotEmpty) ...[
+                const SizedBox(height: 22),
+                Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                  const Text('Missions NOVIGO Brain', style: T.h2),
+                  Text(
+                    _missions.length == driver.brainMissions.length
+                        ? '${driver.brainMissions.length}'
+                        : '${_missions.length}/${driver.brainMissions.length}',
+                    style: const TextStyle(color: NC.brand, fontWeight: FontWeight.w800, fontSize: 15),
+                  ),
+                ]),
+                const SizedBox(height: 6),
+                const Text('Tous métiers : colis, course, dépannage, services à domicile.',
+                    style: T.muted),
+                const SizedBox(height: 12),
+                ..._missions.map((m) => Padding(
+                      padding: const EdgeInsets.only(bottom: 14),
+                      child: BrainMissionCard(
+                        mission: m,
+                        onAccept: () => driver.acceptBrainMission(m),
+                      ),
+                    )),
+              ],
             ] else
               _empty(Icons.wifi_off_rounded, 'Vous êtes hors ligne',
                   'Passez en ligne pour recevoir des courses à proximité.'),
           ],
+          ),
         ),
       ),
     );
@@ -55,10 +179,13 @@ class HomeScreen extends StatelessWidget {
           child: const Text('N', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 21)),
         ),
         const SizedBox(width: 12),
-        const Expanded(
+        Expanded(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('Bonjour', style: TextStyle(color: NC.faint, fontSize: 12.5, fontWeight: FontWeight.w600)),
-            Text('Moussa Keïta', style: TextStyle(color: NC.ink, fontWeight: FontWeight.w800, fontSize: 17)),
+            const Text('Bonjour', style: TextStyle(color: NC.faint, fontSize: 12.5, fontWeight: FontWeight.w600)),
+            // Nom du compte connecté (GET /drivers/me), pas un nom de démo.
+            Text(driver.displayName,
+                style: const TextStyle(color: NC.ink, fontWeight: FontWeight.w800, fontSize: 17),
+                maxLines: 1, overflow: TextOverflow.ellipsis),
           ]),
         ),
         Container(
@@ -111,6 +238,85 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
+  /// Recherche par référence, commerce, client ou quartier — la file peut
+  /// compter des dizaines de courses, la retrouver à l'oeil n'était pas tenable.
+  Widget _searchField() => Container(
+        height: 46,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        decoration: BoxDecoration(
+          color: NC.surfaceAlt,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: _query.isEmpty ? NC.line : NC.brand),
+        ),
+        child: Row(children: [
+          Icon(Icons.search_rounded, size: 19, color: _query.isEmpty ? NC.faint : NC.brand),
+          const SizedBox(width: 8),
+          Expanded(
+            child: TextField(
+              controller: _searchCtrl,
+              onChanged: (v) => setState(() => _query = v),
+              textInputAction: TextInputAction.search,
+              style: const TextStyle(color: NC.ink, fontSize: 14.5, fontWeight: FontWeight.w600),
+              cursorColor: NC.brand,
+              decoration: const InputDecoration(
+                isDense: true,
+                border: InputBorder.none,
+                hintText: 'Référence, commerce, client, quartier…',
+                hintStyle: TextStyle(color: NC.faint, fontSize: 14, fontWeight: FontWeight.w500),
+              ),
+            ),
+          ),
+          if (_query.isNotEmpty)
+            GestureDetector(
+              onTap: () {
+                _searchCtrl.clear();
+                setState(() => _query = '');
+              },
+              behavior: HitTestBehavior.opaque,
+              child: const Padding(
+                padding: EdgeInsets.only(left: 6),
+                child: Icon(Icons.close_rounded, size: 18, color: NC.muted),
+              ),
+            ),
+        ]),
+      );
+
+  Widget _filterChips() => SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(children: [
+          _chip('Classement Brain', _Tri.brain, Icons.auto_awesome),
+          _chip('Recommandées', _Tri.recommandees, Icons.verified_rounded),
+          _chip('Mieux payées', _Tri.gain, Icons.payments_rounded),
+          _chip('Plus proches', _Tri.proches, Icons.near_me_rounded),
+        ]),
+      );
+
+  Widget _chip(String label, _Tri tri, IconData icon) {
+    final on = _tri == tri;
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: GestureDetector(
+        onTap: () => setState(() => _tri = tri),
+        behavior: HitTestBehavior.opaque,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: on ? NC.brand.withValues(alpha: 0.16) : NC.surfaceAlt,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: on ? NC.brand : NC.line),
+          ),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(icon, size: 14, color: on ? NC.brand : NC.faint),
+            const SizedBox(width: 6),
+            Text(label,
+                style: TextStyle(
+                    color: on ? NC.brand : NC.muted, fontWeight: FontWeight.w700, fontSize: 12.5)),
+          ]),
+        ),
+      ),
+    );
+  }
+
   Widget _statsRow() => Row(children: [
         _stat(Icons.payments_rounded, fcfa(driver.todayEarnings), 'Gains', NC.success),
         const SizedBox(width: 10),
@@ -118,7 +324,9 @@ class HomeScreen extends StatelessWidget {
         const SizedBox(width: 10),
         _stat(Icons.star_rounded, driver.rating.toStringAsFixed(1), 'Note', NC.gold),
         const SizedBox(width: 10),
-        _stat(Icons.schedule_rounded, '${driver.hoursOnline}h', 'En ligne', NC.info),
+        // Cumul des courses terminées (backend) : le temps passé en ligne n'est
+        // pas tracé côté serveur, on n'affiche donc pas d'heures inventées.
+        _stat(Icons.local_shipping_rounded, '${driver.totalDeliveries}', 'Total', NC.info),
       ]);
 
   Widget _stat(IconData icon, String value, String label, Color c) => Expanded(
@@ -163,6 +371,17 @@ class _RequestCard extends StatelessWidget {
   final DeliveryRequest req;
   const _RequestCard({required this.req});
 
+  /// Sous-titre composé des seuls éléments réellement connus (articles, ETA,
+  /// référence) : rien n'est affiché plutôt qu'une valeur inventée.
+  static String? _subtitle(DeliveryRequest r) {
+    final parts = <String>[
+      if (r.itemsCount > 0) '${r.itemsCount} article${r.itemsCount > 1 ? 's' : ''}',
+      if (r.etaMin > 0) '${r.etaMin} min',
+      if (r.reference != null) r.reference!,
+    ];
+    return parts.isEmpty ? null : parts.join(' · ');
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -182,19 +401,33 @@ class _RequestCard extends StatelessWidget {
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(req.storeName, style: T.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-              const SizedBox(height: 2),
-              Text('${req.itemsCount} article${req.itemsCount > 1 ? 's' : ''} · ${req.etaMin} min',
-                  style: T.muted, maxLines: 1, overflow: TextOverflow.ellipsis),
+              if (_subtitle(req) != null) ...[
+                const SizedBox(height: 2),
+                Text(_subtitle(req)!, style: T.muted, maxLines: 1, overflow: TextOverflow.ellipsis),
+              ],
+              // Décision du Brain : pourquoi cette course m'est proposée.
+              if (req.brainScore > 0) ...[
+                const SizedBox(height: 6),
+                BrainScoreBadge(
+                  score: req.brainScore,
+                  recommended: req.recommended,
+                  reasons: req.brainReasons,
+                  title: 'Pourquoi cette course ?',
+                ),
+              ],
             ]),
           ),
           Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-            Text(fcfa(req.payout),
-                style: const TextStyle(
-                    color: NC.success,
-                    fontWeight: FontWeight.w900,
-                    fontSize: 17,
-                    fontFeatures: [FontFeature.tabularFigures()])),
-            Text('${req.distanceKm} km', style: const TextStyle(color: NC.faint, fontSize: 12)),
+            if (req.payout > 0)
+              Text(fcfa(req.payout),
+                  style: const TextStyle(
+                      color: NC.success,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 17,
+                      fontFeatures: [FontFeature.tabularFigures()])),
+            // Distance affichée seulement si le backend la connaît (géoloc P4).
+            if (req.distanceKm > 0)
+              Text('${req.distanceKm} km', style: const TextStyle(color: NC.faint, fontSize: 12)),
           ]),
         ]),
         const SizedBox(height: 14),
