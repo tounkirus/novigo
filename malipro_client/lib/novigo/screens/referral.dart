@@ -137,7 +137,7 @@ class ReferralScreen extends StatelessWidget {
               const SizedBox(height: Sp.section),
               const NovigoSectionHeader(overline: 'Bilan', title: 'Vos gains'),
               const SizedBox(height: Sp.md),
-              Row(children: const [
+              const Row(children: [
                 _StatCard(
                     value: '7',
                     label: 'Amis parrainés',
