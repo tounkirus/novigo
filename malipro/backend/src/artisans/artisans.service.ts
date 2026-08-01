@@ -21,6 +21,8 @@ const mapPublicArtisan = (a: any) => ({
   name: a.user ? [a.user.firstName, a.user.lastName].filter(Boolean).join(" ") || null : null,
   photoUrl: a.user?.photoUrl ?? null,
   serviceCount: a._count?.services,
+  // Prix d'appel : évite un aller-retour de détail par prestataire côté client.
+  startingPrice: a.services?.length ? money(a.services[0].price) : null,
 });
 
 @Injectable()
@@ -116,7 +118,11 @@ export class ArtisansService {
     const [rows, total] = await Promise.all([
       this.prisma.artisan.findMany({
         where,
-        include: { user: true, _count: { select: { services: true } } },
+        include: {
+          user: true,
+          _count: { select: { services: true } },
+          services: { select: { price: true }, orderBy: { price: "asc" }, take: 1 },
+        },
         orderBy: [{ rating: "desc" }, { createdAt: "desc" }],
         skip: (page - 1) * limit,
         take: limit,

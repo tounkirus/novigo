@@ -12,8 +12,8 @@ export class DeliveriesController {
 
   @Get("available")
   @Roles("DRIVER")
-  available() {
-    return this.deliveries.available();
+  available(@CurrentUser() user: AuthUser) {
+    return this.deliveries.available(user.id);
   }
 
   @Get(":id")

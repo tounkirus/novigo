@@ -75,3 +75,9 @@ apk/
 **/*.log
 **/.terraform/
 Thumbs.db
+
+# Sortie de compilation du seed (regeneree a la demande)
+.seedbuild/
+
+# Catalogue exporte (21 Mo) — regenere par client-web/scripts/export-catalog.ts
+malipro/backend/prisma/catalog.json

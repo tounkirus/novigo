@@ -7,7 +7,16 @@ describe("CatalogService", () => {
     const prisma = { product: { findMany: jest.fn().mockResolvedValue(rows), count: jest.fn().mockResolvedValue(1) } } as any;
     const res = await new CatalogService(prisma).list(1, 10);
     expect(res.data[0]).toMatchObject({ id: "p1", price: { amount: 3500, currency: "XOF" } });
-    expect(prisma.product.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: {} }));
+    // Catalogue public : produits publiés, et boutique d'un commerçant approuvé
+    // & actif (ou produit plateforme sans boutique).
+    expect(prisma.product.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          status: "PUBLISHED",
+          OR: [{ storeId: null }, { store: { merchant: { status: "APPROVED", isActive: true } } }],
+        },
+      }),
+    );
   });
 
   it("list : avec recherche insensible à la casse", async () => {

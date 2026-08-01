@@ -3,8 +3,12 @@ import { PrismaService } from "../common/prisma/prisma.service";
 import { paginate } from "../common/dto/pagination.dto";
 import { RealtimeGateway } from "../realtime/realtime.gateway";
 import { EventBusService } from "../common/events/event-bus.service";
+import { BrainService } from "../brain/brain.service";
 
 const money = (amount: number, currency = "XOF") => ({ amount, currency });
+
+/// Tarif appliqué quand la commande n'est rattachée à aucune boutique.
+const DEFAULT_DELIVERY_FEE = 1000;
 
 function mapOrder(o: any) {
   return {
@@ -34,6 +38,8 @@ export class OrdersService {
     private prisma: PrismaService,
     private realtime: RealtimeGateway,
     private bus: EventBusService,
+    // Le Brain décide (tarif, délai, attribution) ; ce service exécute (principe n°1).
+    private brain: BrainService,
   ) {}
 
   /// Utilisateurs à notifier pour un établissement : propriétaire + staff.
@@ -98,14 +104,34 @@ export class OrdersService {
       subtotal += unit * i.quantity;
       return { productId: p.id, name: p.name, quantity: i.quantity, unitPrice: unit, optionsLabel };
     });
-    const deliveryFee = 1000;
-    const total = subtotal + deliveryFee;
-    const count = await this.prisma.order.count();
-    const reference = `MLP-2026-${String(count + 1).padStart(6, "0")}`;
-
     // Rattache la commande à la boutique du/des produit(s) (commande mono-boutique).
     const storeIds = [...new Set(products.map((p) => p.storeId).filter(Boolean))];
     const storeId = storeIds.length === 1 ? (storeIds[0] as string) : null;
+
+    // Frais de livraison : valeur portée par la boutique, c'est-à-dire exactement
+    // celle que /stores a renvoyée au client. Sans boutique rattachée, tarif par défaut.
+    const store = storeId
+      ? await this.prisma.store.findUnique({ where: { id: storeId }, select: { deliveryFee: true } })
+      : null;
+
+    // NOVIGO Brain : c'est LUI qui arrête le tarif de livraison et le délai annoncé.
+    // Quand la boutique impose ses frais, le Brain les respecte et se contente de
+    // les expliquer ; sans boutique rattachée, il calcule (distance, trafic, tension).
+    const quote = await this.brain
+      .quote({
+        orderType: dto.type,
+        storeId: storeId ?? undefined,
+        zone: dto.deliveryAddress?.district ?? undefined,
+        subtotal,
+        itemsCount: dto.items.length,
+        clientId: userId,
+        partnerFee: store ? store.deliveryFee : null,
+      })
+      .catch(() => null);
+    const deliveryFee = quote?.price.amount ?? store?.deliveryFee ?? DEFAULT_DELIVERY_FEE;
+    const total = subtotal + deliveryFee;
+    const count = await this.prisma.order.count();
+    const reference = `MLP-2026-${String(count + 1).padStart(6, "0")}`;
 
     const order = await this.prisma.order.create({
       data: {
@@ -130,6 +156,13 @@ export class OrdersService {
       this.realtime.emitToUsers(recipients, "order.new", {
         id: order.id, reference: order.reference, status: order.status,
         storeId: order.storeId, total: money(order.total), paymentMethod: order.paymentMethod,
+        // Lignes + total d'articles : sans eux la carte commerçant ne peut afficher
+        // qu'un décompte inventé tant que le refetch n'a pas eu lieu.
+        items: order.items.map((it: any) => ({
+          name: it.name, quantity: it.quantity, unitPrice: money(it.unitPrice),
+          optionsLabel: it.optionsLabel ?? undefined,
+        })),
+        itemsCount: order.items.reduce((s: number, it: any) => s + it.quantity, 0),
         createdAt: order.createdAt,
       });
     }
@@ -147,7 +180,35 @@ export class OrdersService {
       paymentMethod: order.paymentMethod,
       createdAt: order.createdAt,
     });
-    return mapOrder(order);
+
+    // Une commande EST une mission du Brain (principe n°5) : le suivi, l'attribution
+    // du livreur et l'apprentissage passeront désormais par lui.
+    const mission = await this.brain.onOrderCreated({
+      id: order.id,
+      reference: order.reference,
+      customerId: order.customerId,
+      storeId: order.storeId,
+      type: order.type,
+      subtotal: order.subtotal,
+      deliveryFee: order.deliveryFee,
+      paymentMethod: order.paymentMethod,
+      zone: order.addressDistrict,
+    });
+
+    return {
+      ...mapOrder(order),
+      // Décision du Brain rendue au client : délai annoncé et raisons du tarif.
+      etaMinutes: quote?.etaMinutes ?? null,
+      brain: quote
+        ? {
+            decisionId: quote.decisionId,
+            missionReference: mission?.reference ?? null,
+            reasons: quote.reasons,
+            breakdown: quote.breakdown,
+            balance: quote.balance,
+          }
+        : null,
+    };
   }
 
   async listMine(userId: string, page: number, limit: number, status?: string) {
@@ -200,6 +261,8 @@ export class OrdersService {
       throw new BadRequestException("Cette commande ne peut plus être annulée.");
     }
     const updated = await this.prisma.order.update({ where: { id }, data: { status: "CANCELLED" } });
+    // Le Brain apprend aussi des échecs (principe n°4).
+    await this.brain.onOrderCancelled(id, "Annulation client").catch(() => undefined);
     return mapOrder(updated);
   }
 }

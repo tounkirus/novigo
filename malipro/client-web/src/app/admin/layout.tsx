@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import {
   LayoutDashboard, Store, Bike, ClipboardList, Users, Contact, FileText, Boxes,
-  Megaphone, BarChart3, ShieldCheck, Wallet, Banknote, Wrench,
+  Megaphone, BarChart3, ShieldCheck, Wallet, Banknote, Wrench, BrainCircuit,
 } from "lucide-react";
 import { DashboardShell, type DashboardNavItem } from "@/components/dashboard/dashboard-shell";
 
@@ -14,6 +14,7 @@ const NAV: DashboardNavItem[] = [
   { href: "/admin/drivers", label: "Livreurs", icon: Bike, group: "Opérations" },
   { href: "/admin/services", label: "Services à domicile", icon: Wrench, group: "Opérations" },
   { href: "/admin/users", label: "Utilisateurs", icon: Users, group: "Opérations" },
+  { href: "/admin/brain", label: "NOVIGO Brain", icon: BrainCircuit, group: "Opérations" },
   { href: "/admin/finance", label: "Centre financier", icon: Wallet, group: "Finances" },
   { href: "/admin/cash", label: "Gestion caisse", icon: Banknote, group: "Finances" },
   { href: "/admin/crm", label: "CRM Clients", icon: Contact, group: "Croissance" },

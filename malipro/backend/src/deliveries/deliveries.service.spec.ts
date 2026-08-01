@@ -3,12 +3,21 @@ import { DeliveriesService } from "./deliveries.service";
 
 const realtime = { emitTracking: jest.fn() } as any;
 const notifications = { create: jest.fn() } as any;
-const svc = (prisma: any) => new DeliveriesService(prisma, realtime, notifications);
+/// Bus finance (Spring) stubbé : les tests unitaires ne vérifient que le métier.
+const bus = { publish: jest.fn() } as any;
+/// Brain stubbé : le classement et l'apprentissage sont testés dans src/brain.
+const brain = {
+  scoreOffersFor: jest.fn().mockResolvedValue(new Map()),
+  onDeliveryAccepted: jest.fn().mockResolvedValue(null),
+  onDeliveryStarted: jest.fn().mockResolvedValue(null),
+  onDeliveryCompleted: jest.fn().mockResolvedValue(null),
+} as any;
+const svc = (prisma: any) => new DeliveriesService(prisma, realtime, notifications, bus, brain);
 
 describe("DeliveriesService", () => {
   it("accept : assigne une livraison libre", async () => {
     const prisma = {
-      driver: { findUnique: jest.fn().mockResolvedValue({ id: "d1" }) },
+      driver: { findUnique: jest.fn().mockResolvedValue({ id: "d1" }), update: jest.fn().mockResolvedValue({}) },
       delivery: {
         findUnique: jest.fn().mockResolvedValue({ id: "dl1", status: "UNASSIGNED", driverId: null, orderId: "o1" }),
         update: jest.fn().mockResolvedValue({ id: "dl1", status: "ACCEPTED", driverId: "d1", orderId: "o1" }),
@@ -22,7 +31,7 @@ describe("DeliveriesService", () => {
 
   it("accept : conflit si déjà prise", async () => {
     const prisma = {
-      driver: { findUnique: jest.fn().mockResolvedValue({ id: "d1" }) },
+      driver: { findUnique: jest.fn().mockResolvedValue({ id: "d1" }), update: jest.fn().mockResolvedValue({}) },
       delivery: { findUnique: jest.fn().mockResolvedValue({ id: "dl1", status: "ACCEPTED", driverId: "dx", orderId: "o1" }) },
     } as any;
     await expect(svc(prisma).accept("dl1", "u1")).rejects.toThrow(ConflictException);
@@ -30,7 +39,7 @@ describe("DeliveriesService", () => {
 
   it("start : refuse une livraison d'un autre livreur", async () => {
     const prisma = {
-      driver: { findUnique: jest.fn().mockResolvedValue({ id: "d1" }) },
+      driver: { findUnique: jest.fn().mockResolvedValue({ id: "d1" }), update: jest.fn().mockResolvedValue({}) },
       delivery: { findUnique: jest.fn().mockResolvedValue({ id: "dl1", status: "ACCEPTED", driverId: "other", orderId: "o1" }) },
     } as any;
     await expect(svc(prisma).start("dl1", "u1")).rejects.toThrow(ForbiddenException);
@@ -38,7 +47,7 @@ describe("DeliveriesService", () => {
 
   it("start : transition invalide si pas ACCEPTED", async () => {
     const prisma = {
-      driver: { findUnique: jest.fn().mockResolvedValue({ id: "d1" }) },
+      driver: { findUnique: jest.fn().mockResolvedValue({ id: "d1" }), update: jest.fn().mockResolvedValue({}) },
       delivery: { findUnique: jest.fn().mockResolvedValue({ id: "dl1", status: "UNASSIGNED", driverId: "d1", orderId: "o1" }) },
     } as any;
     await expect(svc(prisma).start("dl1", "u1")).rejects.toThrow(BadRequestException);
@@ -61,7 +70,48 @@ describe("DeliveriesService", () => {
     expect(res[0].dropoffLocation).toEqual({ lat: 13, lng: -7 });
     expect(res[1].pickupLocation).toBeUndefined();
     expect(res[1].dropoffLocation).toBeUndefined();
-    expect(prisma.delivery.findMany).toHaveBeenCalledWith({ where: { status: "UNASSIGNED" }, orderBy: { id: "asc" }, take: 50 });
+    expect(prisma.delivery.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { status: "UNASSIGNED" }, orderBy: { id: "asc" }, take: 50 }),
+    );
+  });
+
+  it("available : porte le contexte de la commande (commerce, client, articles, payout)", async () => {
+    const prisma = {
+      delivery: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: "dl1", orderId: "o1", status: "UNASSIGNED",
+            order: {
+              reference: "MLP-2026-000031", total: 4000, deliveryFee: 500,
+              addressLine1: "Rue 250", addressDistrict: "Hamdallaye", addressCity: "Bamako",
+              store: { id: "s1", name: "Chez Fatou", address: "ACI 2000" },
+              customer: { firstName: "Awa", lastName: "Traoré" },
+              items: [{ quantity: 2 }, { quantity: 1 }],
+            },
+          },
+        ]),
+      },
+    } as any;
+    const [row] = await svc(prisma).available();
+    expect(row.reference).toBe("MLP-2026-000031");
+    expect(row.store).toEqual({ id: "s1", name: "Chez Fatou", address: "ACI 2000" });
+    expect(row.customerName).toBe("Awa Traoré");
+    expect(row.dropoffAddress).toBe("Rue 250 · Hamdallaye · Bamako");
+    expect(row.itemsCount).toBe(3);
+    expect(row.payout).toEqual({ amount: 500, currency: "XOF" });
+    expect(row.orderTotal).toEqual({ amount: 4000, currency: "XOF" });
+  });
+
+  it("available : commande absente -> champs neutres, aucune valeur inventée", async () => {
+    const prisma = {
+      delivery: { findMany: jest.fn().mockResolvedValue([{ id: "dl1", orderId: "o1", status: "UNASSIGNED", order: null }]) },
+    } as any;
+    const [row] = await svc(prisma).available();
+    expect(row.reference).toBeNull();
+    expect(row.store).toBeNull();
+    expect(row.customerName).toBeNull();
+    expect(row.itemsCount).toBe(0);
+    expect(row.payout).toBeNull();
   });
 
   it("get : retourne la livraison mappée", async () => {
@@ -84,7 +134,7 @@ describe("DeliveriesService", () => {
 
   it("accept : NotFound si livraison absente", async () => {
     const prisma = {
-      driver: { findUnique: jest.fn().mockResolvedValue({ id: "d1" }) },
+      driver: { findUnique: jest.fn().mockResolvedValue({ id: "d1" }), update: jest.fn().mockResolvedValue({}) },
       delivery: { findUnique: jest.fn().mockResolvedValue(null) },
     } as any;
     await expect(svc(prisma).accept("dl1", "u1")).rejects.toThrow(NotFoundException);
@@ -92,7 +142,7 @@ describe("DeliveriesService", () => {
 
   it("accept : conflit si driverId déjà défini mais statut UNASSIGNED", async () => {
     const prisma = {
-      driver: { findUnique: jest.fn().mockResolvedValue({ id: "d1" }) },
+      driver: { findUnique: jest.fn().mockResolvedValue({ id: "d1" }), update: jest.fn().mockResolvedValue({}) },
       delivery: { findUnique: jest.fn().mockResolvedValue({ id: "dl1", status: "UNASSIGNED", driverId: "dx", orderId: "o1" }) },
     } as any;
     await expect(svc(prisma).accept("dl1", "u1")).rejects.toThrow(ConflictException);
@@ -100,7 +150,7 @@ describe("DeliveriesService", () => {
 
   it("accept : émet le tracking ASSIGNED", async () => {
     const prisma = {
-      driver: { findUnique: jest.fn().mockResolvedValue({ id: "d1" }) },
+      driver: { findUnique: jest.fn().mockResolvedValue({ id: "d1" }), update: jest.fn().mockResolvedValue({}) },
       delivery: {
         findUnique: jest.fn().mockResolvedValue({ id: "dl1", status: "UNASSIGNED", driverId: null, orderId: "o1" }),
         update: jest.fn().mockResolvedValue({ id: "dl1", status: "ACCEPTED", driverId: "d1", orderId: "o1" }),
@@ -124,7 +174,7 @@ describe("DeliveriesService", () => {
 
   it("start : passe en EN_ROUTE_DROPOFF et émet IN_TRANSIT", async () => {
     const prisma = {
-      driver: { findUnique: jest.fn().mockResolvedValue({ id: "d1" }) },
+      driver: { findUnique: jest.fn().mockResolvedValue({ id: "d1" }), update: jest.fn().mockResolvedValue({}) },
       delivery: {
         findUnique: jest.fn().mockResolvedValue({ id: "dl1", status: "ACCEPTED", driverId: "d1", orderId: "o1" }),
         update: jest.fn().mockResolvedValue({ id: "dl1", status: "EN_ROUTE_DROPOFF", orderId: "o1" }),
@@ -139,7 +189,7 @@ describe("DeliveriesService", () => {
 
   it("start : NotFound si livraison absente", async () => {
     const prisma = {
-      driver: { findUnique: jest.fn().mockResolvedValue({ id: "d1" }) },
+      driver: { findUnique: jest.fn().mockResolvedValue({ id: "d1" }), update: jest.fn().mockResolvedValue({}) },
       delivery: { findUnique: jest.fn().mockResolvedValue(null) },
     } as any;
     await expect(svc(prisma).start("dl1", "u1")).rejects.toThrow(NotFoundException);
@@ -182,7 +232,7 @@ describe("DeliveriesService", () => {
 
   it("complete : BadRequest si déjà terminée", async () => {
     const prisma = {
-      driver: { findUnique: jest.fn().mockResolvedValue({ id: "d1" }) },
+      driver: { findUnique: jest.fn().mockResolvedValue({ id: "d1" }), update: jest.fn().mockResolvedValue({}) },
       delivery: { findUnique: jest.fn().mockResolvedValue({ id: "dl1", status: "COMPLETED", driverId: "d1", orderId: "o1" }) },
     } as any;
     await expect(svc(prisma).complete("dl1", "u1")).rejects.toThrow(BadRequestException);
@@ -190,7 +240,7 @@ describe("DeliveriesService", () => {
 
   it("updateLocation : met à jour la position et émet le tracking", async () => {
     const prisma = {
-      driver: { findUnique: jest.fn().mockResolvedValue({ id: "d1" }) },
+      driver: { findUnique: jest.fn().mockResolvedValue({ id: "d1" }), update: jest.fn().mockResolvedValue({}) },
       delivery: {
         findUnique: jest.fn().mockResolvedValue({ id: "dl1", status: "EN_ROUTE_DROPOFF", driverId: "d1", orderId: "o1", etaMinutes: 10 }),
         update: jest.fn().mockResolvedValue({}),
@@ -207,7 +257,7 @@ describe("DeliveriesService", () => {
 
   it("updateLocation : commande absente => status undefined dans le tracking", async () => {
     const prisma = {
-      driver: { findUnique: jest.fn().mockResolvedValue({ id: "d1" }) },
+      driver: { findUnique: jest.fn().mockResolvedValue({ id: "d1" }), update: jest.fn().mockResolvedValue({}) },
       delivery: {
         findUnique: jest.fn().mockResolvedValue({ id: "dl1", status: "ACCEPTED", driverId: "d1", orderId: "o1" }),
         update: jest.fn().mockResolvedValue({}),

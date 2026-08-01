@@ -62,6 +62,7 @@ les préfixes **finance** ci-dessous sont routés explicitement vers Spring ; **
 | `orders`, `deliveries`, `drivers`, `public/orders` | Nest | Commandes / livraison / tracking |
 | `stores`, `catalog`, `merchants`, `artisans` | Nest | Catalogue / commerçants |
 | `chat`, `notifications`, `support`, `reviews`, `referrals`, `favorites` | Nest | Social / support |
+| `brain` | Nest | **NOVIGO Brain** — décisions (tarif, délai, attribution, apprentissage) |
 | `socket.io/` **(WebSocket)** | Nest | Temps réel Socket.IO `/realtime` |
 | `wallet`, `wallets`, `payments` | **Spring** | Portefeuille / paiements |
 | `invoices`, `billing`, `reports`, `analytics` | **Spring** | Facturation / compta / rapports |
@@ -162,6 +163,16 @@ en réutilisant les DTO/endpoints déjà écrits. Pas de WebView, pas de Riverpo
   120 FPS ; observabilité (Prometheus/Grafana/Jaeger/Loki déjà présents).
 - **P5 — Build & validation** : build Android vérifié ; iOS via Codemagic ; rapport de synchro
   Web/Android/iOS (fonctions, % sync, endpoints/DTO réutilisés, tests) ; zéro régression, build vert.
+
+## 8 bis. NOVIGO Brain (chapitre 15)
+
+Le **NOVIGO Brain** est la couche de décision de la plateforme : `malipro/backend/src/brain/`
+(module Nest global, schéma `ops`). Il porte les huit moteurs (attribution, tarification,
+itinéraire, regroupement, confiance, fraude, intelligence de la ville, apprentissage), le
+journal explicable des décisions et le Livre de Connaissances. Les commandes deviennent des
+**missions** ; les applications consomment `/api/v1/brain/*` et **exécutent** ses décisions
+(principes n°1 et n°2). Un nouveau métier s'ajoute **par configuration** (`ServicePolicy`),
+sans toucher aux moteurs. Détail complet : `_stack/BRAIN-NOVIGO.md`.
 
 ## 9. Contraintes honnêtes
 

@@ -39,6 +39,12 @@ export class DriversController {
     return this.drivers.myDeliveries(user.id);
   }
 
+  @Get("drivers/me/earnings")
+  @Roles("DRIVER")
+  myEarnings(@CurrentUser() user: AuthUser) {
+    return this.drivers.myEarnings(user.id);
+  }
+
   @Get("admin/drivers")
   @Roles("ADMIN", "SUPER_ADMIN")
   list(@Query() q: PaginationQuery, @Query("kycStatus") kycStatus?: string) {

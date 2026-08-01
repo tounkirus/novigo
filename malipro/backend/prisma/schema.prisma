@@ -133,17 +133,17 @@ enum OtpPurpose {
 }
 
 model User {
-  referralCode    String?  @unique
-  id           String     @id @default(uuid())
-  phone        String     @unique
-  email        String?    @unique
+  referralCode String?         @unique
+  id           String          @id @default(uuid())
+  phone        String          @unique
+  email        String?         @unique
   firstName    String?
   lastName     String?
   photoUrl     String?
   passwordHash String?
   roles        Role[]
-  status       UserStatus @default(ACTIVE)
-  locale       String     @default("fr")
+  status       UserStatus      @default(ACTIVE)
+  locale       String          @default("fr")
   driver       Driver?
   merchant     Merchant?
   artisan      Artisan?
@@ -152,23 +152,28 @@ model User {
   wallet       Wallet?
   addresses    Address[]
   favorites    Favorite[]
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
 }
 
 model Driver {
-  id              String    @id @default(uuid())
-  user            User      @relation(fields: [userId], references: [id])
-  userId          String    @unique
+  id              String           @id @default(uuid())
+  user            User             @relation(fields: [userId], references: [id])
+  userId          String           @unique
   vehicleType     String?
   plateNumber     String?
-  kycStatus       KycStatus @default(PENDING)
-  isAvailable     Boolean   @default(false)
-  rating          Float     @default(0)
-  totalDeliveries Int       @default(0)
+  kycStatus       KycStatus        @default(PENDING)
+  isAvailable     Boolean          @default(false)
+  rating          Float            @default(0)
+  totalDeliveries Int              @default(0)
+  // Dernière position connue : le Brain en a besoin pour juger la proximité
+  // (Service Decision Engine). Alimentée par /drivers/me/availability et le suivi.
+  lastLat         Float?
+  lastLng         Float?
+  lastSeenAt      DateTime?
   documents       DriverDocument[]
   deliveries      Delivery[]
-  createdAt       DateTime  @default(now())
+  createdAt       DateTime         @default(now())
 }
 
 model DriverDocument {
@@ -182,27 +187,27 @@ model DriverDocument {
 }
 
 model Order {
-  id              String      @id @default(uuid())
-  reference       String      @unique
-  trackingCode    String?     @unique
-  customer        User        @relation(fields: [customerId], references: [id])
+  id              String         @id @default(uuid())
+  reference       String         @unique
+  trackingCode    String?        @unique
+  customer        User           @relation(fields: [customerId], references: [id])
   customerId      String
-  store           Store?      @relation(fields: [storeId], references: [id])
+  store           Store?         @relation(fields: [storeId], references: [id])
   storeId         String?
   type            OrderType
-  status          OrderStatus @default(PENDING)
+  status          OrderStatus    @default(PENDING)
   items           OrderItem[]
   subtotal        Int
   deliveryFee     Int
   total           Int
-  currency        String      @default("XOF")
+  currency        String         @default("XOF")
   paymentMethod   PaymentMethod?
   addressLine1    String?
   addressCity     String?
   addressDistrict String?
   payment         Payment?
   delivery        Delivery?
-  createdAt       DateTime    @default(now())
+  createdAt       DateTime       @default(now())
 
   @@index([storeId])
 }
@@ -268,26 +273,25 @@ model CommissionSettings {
   updatedAt       DateTime @updatedAt
 }
 
-
 model Product {
-  id             String        @id @default(uuid())
-  store          Store?        @relation(fields: [storeId], references: [id])
+  id             String               @id @default(uuid())
+  store          Store?               @relation(fields: [storeId], references: [id])
   storeId        String?
-  menuCategory   MenuCategory? @relation(fields: [menuCategoryId], references: [id])
+  menuCategory   MenuCategory?        @relation(fields: [menuCategoryId], references: [id])
   menuCategoryId String?
   name           String
   description    String?
-  category       String?  // FOOD | GROCERY | PHARMACY | SHOP (filtre catalogue global)
+  category       String? // FOOD | GROCERY | PHARMACY | SHOP (filtre catalogue global)
   price          Int
-  currency       String   @default("XOF")
+  currency       String               @default("XOF")
   imageUrl       String?
-  images         String[] @default([]) // galerie multi-photos
-  promoPercent   Int?     // remise commerçant en % (0-90)
-  inStock        Boolean  @default(true)
-  stockQuantity  Int      @default(100)
-  status         ProductStatus @default(PUBLISHED)
+  images         String[]             @default([]) // galerie multi-photos
+  promoPercent   Int? // remise commerçant en % (0-90)
+  inStock        Boolean              @default(true)
+  stockQuantity  Int                  @default(100)
+  status         ProductStatus        @default(PUBLISHED)
   optionGroups   ProductOptionGroup[]
-  createdAt      DateTime @default(now())
+  createdAt      DateTime             @default(now())
 
   @@index([category])
   @@index([menuCategoryId])
@@ -356,7 +360,6 @@ model Transaction {
   createdAt    DateTime        @default(now())
 }
 
-
 model OtpCode {
   id         String     @id @default(uuid())
   phone      String
@@ -369,7 +372,6 @@ model OtpCode {
 
   @@index([phone, purpose])
 }
-
 
 model Address {
   id        String   @id @default(uuid())
@@ -399,7 +401,6 @@ model Favorite {
   @@unique([userId, targetType, targetId])
 }
 
-
 model Review {
   id         String   @id @default(uuid())
   authorId   String
@@ -423,7 +424,6 @@ model DeliveryIssue {
   @@index([deliveryId])
 }
 
-
 model Conversation {
   id                 String    @id @default(uuid())
   participantIds     String[]
@@ -446,22 +446,21 @@ model Message {
   @@index([conversationId])
 }
 
-
 model Merchant {
-  id           String         @id @default(uuid())
-  user         User           @relation(fields: [userId], references: [id])
-  userId       String         @unique
+  id           String             @id @default(uuid())
+  user         User               @relation(fields: [userId], references: [id])
+  userId       String             @unique
   businessName String
   category     String?
-  isActive     Boolean        @default(true)
-  status       MerchantStatus @default(APPROVED)
-  autoPublish  Boolean        @default(true) // si faux, chaque produit passe en validation
+  isActive     Boolean            @default(true)
+  status       MerchantStatus     @default(APPROVED)
+  autoPublish  Boolean            @default(true) // si faux, chaque produit passe en validation
   rejectReason String?
   stores       Store[]
   staff        MerchantStaff[]
   payouts      MerchantPayout[]
   documents    MerchantDocument[]
-  createdAt    DateTime       @default(now())
+  createdAt    DateTime           @default(now())
 }
 
 /// Document légal d'un commerçant (registre de commerce, pièce d'identité, etc.).
@@ -469,7 +468,7 @@ model MerchantDocument {
   id         String    @id @default(uuid())
   merchant   Merchant  @relation(fields: [merchantId], references: [id], onDelete: Cascade)
   merchantId String
-  type       String    // RCCM | NIF | ID_CARD | ...
+  type       String // RCCM | NIF | ID_CARD | ...
   url        String
   status     DocStatus @default(PENDING)
   createdAt  DateTime  @default(now())
@@ -484,7 +483,7 @@ model MerchantPayout {
   merchant   Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
   merchantId String
   amount     Int
-  method     String   // ORANGE_MONEY | WAVE | BANK ...
+  method     String // ORANGE_MONEY | WAVE | BANK ...
   reference  String
   createdAt  DateTime @default(now())
 
@@ -507,25 +506,26 @@ model MerchantStaff {
 }
 
 model Store {
-  id          String    @id @default(uuid())
-  merchant    Merchant  @relation(fields: [merchantId], references: [id])
+  id          String         @id @default(uuid())
+  merchant    Merchant       @relation(fields: [merchantId], references: [id])
   merchantId  String
   name        String
   category    String?
   description String?
   phone       String?
   address     String?
-  hours       Json?     // horaires d'ouverture par jour
+  hours       Json? // horaires d'ouverture par jour
   logoUrl     String?
   coverUrl    String?
   lat         Float?
   lng         Float?
-  isOpen      Boolean   @default(true)
-  rating      Float     @default(0)
+  isOpen      Boolean        @default(true)
+  rating      Float          @default(0)
+  deliveryFee Int            @default(1000) // frais de livraison de la boutique (XOF), 0 = offerte
   products    Product[]
   categories  MenuCategory[]
   orders      Order[]
-  createdAt   DateTime  @default(now())
+  createdAt   DateTime       @default(now())
 }
 
 model Artisan {
@@ -544,13 +544,13 @@ model Artisan {
 }
 
 model ArtisanService {
-  id              String   @id @default(uuid())
-  artisan         Artisan  @relation(fields: [artisanId], references: [id])
+  id              String  @id @default(uuid())
+  artisan         Artisan @relation(fields: [artisanId], references: [id])
   artisanId       String
   title           String
   description     String?
   price           Int
-  currency        String   @default("XOF")
+  currency        String  @default("XOF")
   durationMinutes Int?
   imageUrl        String?
 }
@@ -567,7 +567,6 @@ model Quotation {
   createdAt   DateTime @default(now())
 }
 
-
 model Notification {
   id        String    @id @default(uuid())
   userId    String
@@ -582,19 +581,18 @@ model Notification {
 }
 
 model Coupon {
-  id         String    @id @default(uuid())
-  code       String    @unique
-  type       String
-  value      Int
-  minAmount  Int?
+  id          String    @id @default(uuid())
+  code        String    @unique
+  type        String
+  value       Int
+  minAmount   Int?
   maxDiscount Int?
-  usageLimit Int?
-  usedCount  Int       @default(0)
-  isActive   Boolean   @default(true)
-  expiresAt  DateTime?
-  createdAt  DateTime  @default(now())
+  usageLimit  Int?
+  usedCount   Int       @default(0)
+  isActive    Boolean   @default(true)
+  expiresAt   DateTime?
+  createdAt   DateTime  @default(now())
 }
-
 
 model SupportTicket {
   id        String           @id @default(uuid())
@@ -623,7 +621,6 @@ model SupportMessage {
   @@index([ticketId])
 }
 
-
 model DeviceToken {
   id        String   @id @default(uuid())
   userId    String
@@ -633,7 +630,6 @@ model DeviceToken {
 
   @@index([userId])
 }
-
 
 model WebhookEvent {
   id             String    @id @default(uuid())
@@ -662,7 +658,6 @@ model PaymentEvent {
   @@index([paymentId])
 }
 
-
 model EmailLog {
   id        String   @id @default(uuid())
   to        String
@@ -685,7 +680,6 @@ model PasswordReset {
 
   @@index([userId])
 }
-
 
 model Settlement {
   id               String           @id @default(uuid())
@@ -716,7 +710,6 @@ model SettlementItem {
   @@index([settlementId])
 }
 
-
 model NotificationPreference {
   id        String   @id @default(uuid())
   userId    String   @unique
@@ -728,16 +721,241 @@ model NotificationPreference {
   updatedAt DateTime @updatedAt
 }
 
-
 model Referral {
   id           String    @id @default(uuid())
   referrerId   String
   referredId   String    @unique
   code         String
-  rewardAmount Int        @default(0)
-  status       String     @default("PENDING")
-  createdAt    DateTime   @default(now())
+  rewardAmount Int       @default(0)
+  status       String    @default("PENDING")
+  createdAt    DateTime  @default(now())
   rewardedAt   DateTime?
 
   @@index([referrerId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// NOVIGO BRAIN — intelligence décisionnelle universelle (chapitre 15)
+// Le Brain ne connaît pas « la livraison » : il connaît des MISSIONS (principe 5).
+// Chaque décision est journalisée et explicable (principe 3), chaque mission
+// terminée enrichit le Livre de Connaissances (principe 4).
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum MissionStatus {
+  PENDING // besoin exprimé, pas encore attribué
+  DISPATCHING // recherche du meilleur prestataire en cours
+  ASSIGNED // prestataire choisi, en attente d'acceptation
+  ACCEPTED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  FAILED
+}
+
+enum DecisionKind {
+  ASSIGNMENT
+  PRICING
+  ROUTE
+  BATCH
+  TRUST
+  FRAUD
+  LEARNING
+}
+
+/// Déclaration d'un métier (principe 6 : configuration avant développement).
+/// Ajouter un service = insérer une ligne, jamais modifier le cœur du Brain.
+model ServicePolicy {
+  id              String   @id @default(uuid())
+  key             String   @unique // "food_delivery", "plumber", "ride"…
+  label           String
+  family          String // DELIVERY | TRANSPORT | HOME_SERVICE | HEALTH | PAYMENT
+  enabled         Boolean  @default(true)
+  providerKind    String   @default("DRIVER") // DRIVER | ARTISAN | MERCHANT
+  requiresVehicle Boolean  @default(false)
+  skills          String[]
+  equipment       String[]
+  pricing         Json // {base, perKm, perMinute, minimum, surgeMax, commissionPercent}
+  constraints     Json // {maxRadiusKm, maxBatch, slaMinutes, requiresKyc}
+  version         Int      @default(1)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+/// Unité de travail universelle du Brain (livraison, dépannage, course, soin…).
+model Mission {
+  id             String        @id @default(uuid())
+  reference      String        @unique
+  serviceKey     String
+  status         MissionStatus @default(PENDING)
+  clientId       String
+  providerId     String? // userId du prestataire retenu
+  providerKind   String?
+  orderId        String?       @unique // rattachement au domaine ops existant
+  storeId        String?
+  city           String?
+  zone           String?
+  pickupLat      Float?
+  pickupLng      Float?
+  dropoffLat     Float?
+  dropoffLng     Float?
+  distanceMeters Int?
+  etaMinutes     Int?
+  priceAmount    Int           @default(0)
+  currency       String        @default("XOF")
+  priority       Int           @default(0)
+  batchId        String?
+  scheduledAt    DateTime?
+  assignedAt     DateTime?
+  startedAt      DateTime?
+  completedAt    DateTime?
+  actualMinutes  Int?
+  payload        Json?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  events    MissionEvent[]
+  decisions BrainDecision[]
+
+  @@index([status])
+  @@index([serviceKey])
+  @@index([providerId])
+  @@index([clientId])
+  @@index([batchId])
+}
+
+/// Journal événementiel de la mission (principe 7 : event driven).
+model MissionEvent {
+  id        String   @id @default(uuid())
+  mission   Mission  @relation(fields: [missionId], references: [id])
+  missionId String
+  type      String // MissionCreated, MissionAccepted, ProviderArrived, MissionCompleted…
+  actorId   String?
+  data      Json?
+  createdAt DateTime @default(now())
+
+  @@index([missionId])
+  @@index([type])
+}
+
+/// Décision du Brain — jamais anonyme : moteur, entrées, sorties, raisons, équilibre.
+model BrainDecision {
+  id            String       @id @default(uuid())
+  kind          DecisionKind
+  engine        String
+  engineVersion String       @default("1.0.0")
+  serviceKey    String?
+  mission       Mission?     @relation(fields: [missionId], references: [id])
+  missionId     String?
+  subjectId     String? // entité concernée hors mission (userId, orderId…)
+  input         Json
+  output        Json
+  reasons       String[]
+  candidates    Json? // candidats évalués + score détaillé
+  score         Float?
+  confidence    Float?
+  balance       Json? // carré d'équilibre {client, provider, partner, novigo}
+  latencyMs     Int?
+  createdAt     DateTime     @default(now())
+
+  @@index([missionId])
+  @@index([kind])
+  @@index([createdAt])
+}
+
+/// Score de confiance client / prestataire / commerçant (Trust Engine).
+model TrustScore {
+  id            String   @id @default(uuid())
+  subjectId     String
+  subjectType   String // CUSTOMER | DRIVER | MERCHANT | PROVIDER
+  score         Float    @default(50)
+  missions      Int      @default(0)
+  successes     Int      @default(0)
+  cancellations Int      @default(0)
+  incidents     Int      @default(0)
+  factors       Json?
+  updatedAt     DateTime @updatedAt
+
+  @@unique([subjectId, subjectType])
+}
+
+/// Signal de fraude / comportement anormal (Fraud Engine).
+model FraudSignal {
+  id          String   @id @default(uuid())
+  subjectId   String
+  subjectType String
+  kind        String // VELOCITY | CANCEL_ABUSE | PAYMENT_RISK | DUPLICATE_ACCOUNT
+  severity    Int      @default(1) // 1 faible → 5 critique
+  missionId   String?
+  details     Json?
+  createdAt   DateTime @default(now())
+
+  @@index([subjectId])
+  @@index([kind])
+}
+
+/// Livre de Connaissances NOVIGO : moyennes glissantes apprises mission après mission.
+model KnowledgeEntry {
+  id        String   @id @default(uuid())
+  scope     String // ZONE | PROVIDER | MERCHANT | CUSTOMER | CITY | SERVICE
+  key       String // identifiant dans le périmètre (zone, userId, storeId…)
+  metric    String // avg_minutes, demand_h18, prep_minutes, success_rate…
+  value     Float
+  samples   Int      @default(0)
+  meta      Json?
+  updatedAt DateTime @updatedAt
+
+  @@unique([scope, key, metric])
+  @@index([scope, metric])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ANNONCES VOCALES (Voice Dispatch) — le prestataire est informé d'une mission
+// sans regarder son écran. Le Brain décide, la voix annonce, l'app exécute.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Préférences vocales d'un prestataire (livreur, artisan…).
+model VoiceSettings {
+  id          String   @id @default(uuid())
+  /// Utilisateur prestataire (identité canonique Nest).
+  partnerId   String   @unique
+  enabled     Boolean  @default(true)
+  /// « fr » (français) ou « bm » (bambara).
+  language    String   @default("fr")
+  /// « FEMALE » ou « MALE ».
+  voice       String   @default("FEMALE")
+  /// Vitesse de lecture (0.5 lent → 2.0 rapide).
+  speed       Float    @default(1)
+  /// Volume de lecture (0 → 1).
+  volume      Float    @default(1)
+  /// Nombre de lectures de l'annonce (1 = pas de répétition).
+  repeatCount Int      @default(1)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+/// Journal des annonces vocales (critère d'acceptation : traçabilité).
+model VoiceAnnouncement {
+  id              String    @id @default(uuid())
+  partnerId       String
+  missionId       String?
+  orderId         String?
+  /// MISSION_ASSIGNED | MISSION_AVAILABLE | TEST | MANUAL
+  kind            String
+  language        String
+  /// Texte exactement tel qu'il sera prononcé (aucune donnée sensible).
+  text            String
+  /// REALTIME | PUSH | BOTH | NONE
+  channel         String
+  /// SENT | PLAYED | FAILED | SKIPPED
+  status          String    @default("SENT")
+  /// Délai laissé au prestataire pour répondre (secondes).
+  responseSeconds Int?
+  /// Motif d'échec côté appareil (TTS indisponible, silencieux, hors ligne…).
+  error           String?
+  playedAt        DateTime?
+  createdAt       DateTime  @default(now())
+
+  @@index([partnerId])
+  @@index([missionId])
+  @@index([createdAt])
 }

@@ -57,6 +57,37 @@ describe("DriversService", () => {
     expect(res[0]).toMatchObject({ id: "dl1", status: "COMPLETED" });
   });
 
+  it("myEarnings : profil absent -> NotFound", async () => {
+    const prisma = { driver: { findUnique: jest.fn().mockResolvedValue(null) } } as any;
+    await expect(new DriversService(prisma).myEarnings("u1")).rejects.toThrow(NotFoundException);
+  });
+
+  it("myEarnings : ventile jour / 7 jours / total sur les courses terminées", async () => {
+    const now = new Date("2026-07-27T12:00:00Z");
+    const at = (daysAgo: number) => new Date(now.getTime() - daysAgo * 24 * 3600 * 1000);
+    const prisma = {
+      driver: { findUnique: jest.fn().mockResolvedValue({ id: "d1" }) },
+      delivery: {
+        findMany: jest.fn().mockResolvedValue([
+          { completedAt: now, order: { deliveryFee: 500 } }, // aujourd'hui
+          { completedAt: now, order: { deliveryFee: 1000 } }, // aujourd'hui
+          { completedAt: at(3), order: { deliveryFee: 700 } }, // dans les 7 jours
+          { completedAt: at(30), order: { deliveryFee: 900 } }, // hors semaine
+          { completedAt: null, order: { deliveryFee: 300 } }, // date inconnue -> total seulement
+        ]),
+      },
+    } as any;
+    const res = await new DriversService(prisma).myEarnings("u1", now);
+    expect(prisma.delivery.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { driverId: "d1", status: "COMPLETED" } }),
+    );
+    expect(res.today).toEqual({ amount: 1500, currency: "XOF" });
+    expect(res.todayCount).toBe(2);
+    expect(res.week).toEqual({ amount: 2200, currency: "XOF" });
+    expect(res.total).toEqual({ amount: 3400, currency: "XOF" });
+    expect(res.totalCount).toBe(5);
+  });
+
   it("validate : introuvable -> NotFound", async () => {
     const prisma = { driver: { findUnique: jest.fn().mockResolvedValue(null) } } as any;
     await expect(new DriversService(prisma).validate("d1", "APPROVED", "admin")).rejects.toThrow(NotFoundException);

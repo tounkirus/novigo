@@ -188,9 +188,30 @@ export function productImage(category: StoreCategory, name: string, seed: string
   return mediaUrl(productKeywords(category, name), seed, w, h);
 }
 
+/**
+ * Concepts admissibles en couverture de commerce.
+ *
+ * Un seul visuel curé par type de commerce donnait la même devanture à des
+ * centaines de fiches ; passer par loremflickr apportait de la variété mais des
+ * photos hors sujet (un banc, une feuille…). On élargit donc le tirage aux
+ * concepts déjà curés et thématiquement justes pour chaque métier : variété
+ * réelle, sans jamais sortir des identifiants vérifiés.
+ */
+const STORE_COVER_CONCEPTS: Record<StoreCategory, string[]> = {
+  RESTAURANT: ["restaurant", "chicken", "rice", "meat", "fish", "pizza", "burger", "shawarma", "salad", "fries"],
+  SUPERMARKET: ["supermarket", "vegetables", "rice", "bread", "juice"],
+  PHARMACY: ["pharmacy"],
+  BAKERY: ["bakery", "bread", "pastry", "cake"],
+  BUTCHER: ["butcher", "meat", "chicken", "fish"],
+  MARKET: ["market", "vegetables", "fish", "rice"],
+  SHOP: ["boutique"],
+};
+
 /** Couverture / galerie d'un commerce. */
 export function storeImage(category: StoreCategory, seed: string, w: number, h: number): string {
-  return mediaUrl(STORE_KEYWORDS[category], seed, w, h);
+  const ids = STORE_COVER_CONCEPTS[category].flatMap((c) => PHOTO[c] ?? []);
+  if (!ids.length) return mediaUrl(STORE_KEYWORDS[category], seed, w, h);
+  return unsplashUrl(pick(ids, seed), w, h);
 }
 
 /** Image thématique libre (bannières, collections). */

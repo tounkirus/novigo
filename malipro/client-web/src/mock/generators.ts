@@ -65,6 +65,63 @@ const PRODUCT_POOL: Record<StoreCategory, string[]> = {
   SHOP: SHOP_NAMES,
 };
 
+/**
+ * Rayon d'un produit déduit de son nom.
+ *
+ * Le tirage aléatoire d'une sous-catégorie classait « Alloco poulet » en
+ * Desserts ou « Savon de Marseille » en Frais : les menus et les rayons
+ * n'avaient aucun sens. Première règle qui matche l'emporte ; à défaut on
+ * retombe sur le rayon principal de la catégorie.
+ */
+const SUBCAT_RULES: Record<StoreCategory, [RegExp, string][]> = {
+  RESTAURANT: [
+    [/jus|bissap|café|thé|coca|fanta|sprite|eau minérale|djino|bouye|glacé/i, "Boissons"],
+    [/dégué|thiakry|glace|gâteau|beignet|salade de fruits|pâtisserie/i, "Desserts"],
+    [/salade|fataya|omelette|sandwich|shawarma|brochette/i, "Entrées"],
+    [/frites|alloco|attiéké|foutou|couscous|riz cantonais/i, "Accompagnements"],
+  ],
+  SUPERMARKET: [
+    [/eau|jus|lait|thé|café|boisson/i, "Boissons"],
+    [/savon|détergent|hygiène|dentifrice|shampoing/i, "Hygiène"],
+    [/yaourt|beurre|œuf|oeuf|fromage|crème/i, "Frais"],
+    [/congelé|surgelé|glace/i, "Surgelés"],
+  ],
+  PHARMACY: [
+    [/paracétamol|ibuprofène|antipaludéen|sirop|vitamine|fer|collyre/i, "Médicaments"],
+    [/thermomètre|tensiomètre|masque|pansement|matériel/i, "Matériel"],
+    [/bébé|nourrisson|couche/i, "Bébé"],
+    [/crème|gel|alcool|sérum|hydratant/i, "Parapharmacie"],
+  ],
+  BAKERY: [
+    [/croissant|pain au chocolat|chausson|brioche|pain au lait|raisin/i, "Viennoiseries"],
+    [/tarte|éclair|millefeuille|cookie|muffin|cake/i, "Pâtisseries"],
+    [/gâteau|anniversaire/i, "Gâteaux"],
+    [/pain|baguette/i, "Pains"],
+  ],
+  BUTCHER: [
+    [/poulet|volaille|dinde/i, "Volaille"],
+    [/mouton|agneau|gigot|merguez/i, "Mouton"],
+    [/poisson|capitaine|crevette/i, "Poisson"],
+    [/bœuf|boeuf|filet|hachée|foie/i, "Bœuf"],
+  ],
+  MARKET: [
+    [/mangue|banane|papaye|orange|fruit/i, "Fruits"],
+    [/gombo|aubergine|feuille|manioc|patate|légume/i, "Légumes"],
+    [/piment|tamarin|néré|soumbala|oseille|épice/i, "Épices"],
+    [/arachide|mil|sorgho|riz|céréale/i, "Céréales"],
+  ],
+  SHOP: [
+    [/écouteur|chargeur|powerbank|câble|enceinte|coque/i, "Électronique"],
+    [/t-shirt|boubou|sandale|casquette/i, "Mode"],
+    [/sac|montre|bracelet|lunettes|parfum/i, "Accessoires"],
+  ],
+};
+
+function subCategoryFor(category: StoreCategory, name: string): string | null {
+  for (const [re, sub] of SUBCAT_RULES[category]) if (re.test(name)) return sub;
+  return null;
+}
+
 const SUBCATS: Record<StoreCategory, string[]> = {
   RESTAURANT: ["Plats", "Entrées", "Boissons", "Desserts", "Accompagnements"],
   SUPERMARKET: ["Épicerie", "Boissons", "Hygiène", "Frais", "Surgelés"],
@@ -104,7 +161,12 @@ export function generateProducts(store: { id: string; category: StoreCategory; s
     const oldPrice = hasPromo ? Math.round((price * rng.float(1.15, 1.5)) / 50) * 50 : undefined;
     const isDrink = DRINKS.includes(base);
     const isDessert = DESSERTS.includes(base);
-    const sub = isDrink ? "Boissons" : isDessert ? "Desserts" : rng.pick(subcats);
+    // Rayon déduit du produit ; le tirage aléatoire ne sert plus que de repli.
+    const sub = isDrink
+      ? "Boissons"
+      : isDessert
+        ? "Desserts"
+        : (subCategoryFor(store.category, base) ?? subcats[0]);
     return {
       id: `${store.id}_p${i}`,
       storeId: store.id,

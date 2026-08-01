@@ -2,6 +2,8 @@ import { Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../common/prisma/prisma.service";
 import { paginate } from "../common/dto/pagination.dto";
 
+const money = (amount: number, currency = "XOF") => ({ amount, currency });
+
 function mapDriver(d: any) {
   return {
     id: d.id, userId: d.userId,
@@ -82,7 +84,12 @@ export class DriversService {
     if (!driver) throw new NotFoundException("Profil livreur introuvable.");
     const d = await this.prisma.driver.update({
       where: { id: driver.id },
-      data: { isAvailable },
+      // La position transmise à la mise en ligne alimente le critère de proximité
+      // du NOVIGO Brain (Service Decision Engine) — avant, elle était ignorée.
+      data: {
+        isAvailable,
+        ...(lat != null && lng != null ? { lastLat: lat, lastLng: lng, lastSeenAt: new Date() } : {}),
+      },
       include: { user: true },
     });
     return mapDriver(d);
@@ -92,12 +99,55 @@ export class DriversService {
     const driver = await this.prisma.driver.findUnique({ where: { userId } });
     if (!driver) throw new NotFoundException("Profil livreur introuvable.");
     const rows = await this.prisma.delivery.findMany({
-      where: { driverId: driver.id }, orderBy: { id: "desc" }, take: 50,
+      where: { driverId: driver.id },
+      orderBy: { id: "desc" },
+      take: 50,
+      // Référence, commerce et rémunération : l'historique de l'app livreur en a
+      // besoin, sinon il ne peut afficher que des libellés inventés.
+      include: { order: { select: { reference: true, deliveryFee: true, store: { select: { name: true } } } } },
     });
-    return rows.map((d) => ({
+    return rows.map((d: any) => ({
       id: d.id, orderId: d.orderId, status: d.status,
       etaMinutes: d.etaMinutes, completedAt: d.completedAt,
+      reference: d.order?.reference ?? null,
+      storeName: d.order?.store?.name ?? null,
+      payout: d.order ? money(d.order.deliveryFee) : null,
     }));
+  }
+
+  /// Gains du livreur, calculés sur les livraisons réellement terminées.
+  /// La rémunération d'une course = les frais de livraison de sa commande
+  /// (même base que l'événement `delivery.completed` publié vers la finance).
+  async myEarnings(userId: string, now = new Date()) {
+    const driver = await this.prisma.driver.findUnique({ where: { userId } });
+    if (!driver) throw new NotFoundException("Profil livreur introuvable.");
+    const rows = await this.prisma.delivery.findMany({
+      where: { driverId: driver.id, status: "COMPLETED" },
+      select: { completedAt: true, order: { select: { deliveryFee: true } } },
+    });
+
+    const startOfToday = new Date(now);
+    startOfToday.setHours(0, 0, 0, 0);
+    const startOfWeek = new Date(startOfToday);
+    startOfWeek.setDate(startOfWeek.getDate() - 6); // 7 jours glissants, aujourd'hui inclus
+
+    let today = 0, todayCount = 0, week = 0, total = 0;
+    for (const r of rows) {
+      const fee = r.order?.deliveryFee ?? 0;
+      total += fee;
+      const at = r.completedAt;
+      if (!at) continue;
+      if (at >= startOfWeek) week += fee;
+      if (at >= startOfToday) {
+        today += fee;
+        todayCount += 1;
+      }
+    }
+    return {
+      today: money(today), todayCount,
+      week: money(week),
+      total: money(total), totalCount: rows.length,
+    };
   }
 
   async validate(id: string, decision: "APPROVED" | "REJECTED", actorId: string, reason?: string) {

@@ -113,7 +113,26 @@ export class MerchantsService {
     this.realtime.emitToUsers([updated.customerId], "order.updated", payload);
     this.realtime.emitTracking(updated.id, { status: updated.status, reason: reason ?? null });
 
+    // « Prête » = la course devient prenable : prévenir les livreurs en ligne,
+    // sinon leur liste reste figée jusqu'à une bascule manuelle hors ligne/en ligne.
+    if (updated.status === "READY") await this.notifyAvailableDrivers(updated);
+
     return mapMerchantOrder(updated);
+  }
+
+  /// Push « nouvelle course disponible » vers les livreurs déclarés en ligne.
+  private async notifyAvailableDrivers(order: any) {
+    const drivers = await this.prisma.driver.findMany({
+      where: { isAvailable: true }, select: { userId: true },
+    });
+    if (!drivers.length) return;
+    this.realtime.emitToUsers(drivers.map((d) => d.userId), "delivery.available", {
+      orderId: order.id,
+      reference: order.reference,
+      storeName: order.store?.name ?? null,
+      itemsCount: (order.items ?? []).reduce((s: number, i: any) => s + i.quantity, 0),
+      payout: { amount: order.deliveryFee, currency: order.currency ?? "XOF" },
+    });
   }
 
   private async staffUserIds(merchantId: string): Promise<string[]> {

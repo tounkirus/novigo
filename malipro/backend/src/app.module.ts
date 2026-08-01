@@ -36,6 +36,8 @@ import { SupportModule } from "./support/support.module";
 import { SettlementsModule } from "./settlements/settlements.module";
 import { ReferralsModule } from "./referrals/referrals.module";
 import { StoresModule } from "./stores/stores.module";
+import { BrainModule } from "./brain/brain.module";
+import { VoiceDispatchModule } from "./voice-dispatch/voice-dispatch.module";
 
 @Module({
   imports: [
@@ -72,6 +74,8 @@ import { StoresModule } from "./stores/stores.module";
     SettlementsModule,
     ReferralsModule,
     StoresModule,
+    BrainModule,
+    VoiceDispatchModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

@@ -1,10 +1,36 @@
 import { BadRequestException, NotFoundException } from "@nestjs/common";
 import { OrdersService } from "./orders.service";
 
+/// Le service dépend aussi de la passerelle temps réel et du bus d'événements :
+/// les tests unitaires les stubbent, seul le calcul métier est vérifié ici.
+const svc = (prisma: any) =>
+  new OrdersService(
+    prisma,
+    { emitToUsers: jest.fn() } as any,
+    { publish: jest.fn() } as any,
+    brainStub() as any,
+  );
+
+/// NOVIGO Brain stubbé : il décide du tarif/délai, on ne re-teste pas ses moteurs ici.
+const brainStub = () => ({
+  // Le tarif partenaire transmis par OrdersService est celui que le Brain restitue
+  // (le vrai moteur respecte les frais de la boutique) ; sinon tarif par défaut.
+  quote: jest.fn().mockImplementation(async (input: any) => ({
+    price: { amount: input?.partnerFee ?? 1000, currency: "XOF" },
+    etaMinutes: 25,
+    reasons: ["stub"],
+    breakdown: [],
+    balance: { client: 80, provider: 80, partner: 80, novigo: 50 },
+    decisionId: "dec-1",
+  })),
+  onOrderCreated: jest.fn().mockResolvedValue({ reference: "NVG-M-2026-000001" }),
+  onOrderCancelled: jest.fn().mockResolvedValue(null),
+});
+
 describe("OrdersService", () => {
   it("trackByCode : suivi introuvable -> NotFound", async () => {
     const prisma = { order: { findUnique: jest.fn().mockResolvedValue(null) } } as any;
-    await expect(new OrdersService(prisma).trackByCode("XXX")).rejects.toThrow(NotFoundException);
+    await expect(svc(prisma).trackByCode("XXX")).rejects.toThrow(NotFoundException);
   });
 
   it("trackByCode : renvoie le suivi avec livreur assigné", async () => {
@@ -17,7 +43,7 @@ describe("OrdersService", () => {
         }),
       },
     } as any;
-    const res = await new OrdersService(prisma).trackByCode("ABC");
+    const res = await svc(prisma).trackByCode("ABC");
     expect(res.reference).toBe("MLP-1");
     expect(res.itemsCount).toBe(2);
     expect(res.total).toEqual({ amount: 6000, currency: "XOF" });
@@ -33,7 +59,7 @@ describe("OrdersService", () => {
         }),
       },
     } as any;
-    const res = await new OrdersService(prisma).trackByCode("ABC");
+    const res = await svc(prisma).trackByCode("ABC");
     expect(res.delivery).toBeNull();
     expect(res.itemsCount).toBe(0);
   });
@@ -48,7 +74,7 @@ describe("OrdersService", () => {
         }),
       },
     } as any;
-    const res = await new OrdersService(prisma).trackByCode("ABC");
+    const res = await svc(prisma).trackByCode("ABC");
     expect(res.delivery).toEqual({ status: "UNASSIGNED", driverName: null });
   });
 
@@ -62,7 +88,7 @@ describe("OrdersService", () => {
         }),
       },
     } as any;
-    const res = await new OrdersService(prisma).trackByCode("ABC");
+    const res = await svc(prisma).trackByCode("ABC");
     expect(res.delivery).toEqual({ status: "IN_PROGRESS", driverName: null });
   });
 
@@ -71,7 +97,7 @@ describe("OrdersService", () => {
       product: { findMany: jest.fn().mockResolvedValue([]) },
     } as any;
     const dto = { items: [{ productId: "p1", quantity: 1 }], type: "SHOP", paymentMethod: "WALLET", deliveryAddress: { line1: "Rue 1", city: "Bamako" } };
-    await expect(new OrdersService(prisma).createForCustomer("me", dto)).rejects.toThrow(BadRequestException);
+    await expect(svc(prisma).createForCustomer("me", dto)).rejects.toThrow(BadRequestException);
   });
 
   it("createForCustomer : crée la commande, calcule sous-total + frais et mappe", async () => {
@@ -89,7 +115,7 @@ describe("OrdersService", () => {
       items: [{ productId: "p1", quantity: 2 }], type: "SHOP", paymentMethod: "WALLET",
       deliveryAddress: { line1: "Rue 1", city: "Bamako", district: "ACI" },
     };
-    const res = await new OrdersService(prisma).createForCustomer("me", dto);
+    const res = await svc(prisma).createForCustomer("me", dto);
     expect(prisma.order.create).toHaveBeenCalled();
     const arg = prisma.order.create.mock.calls[0][0];
     expect(arg.data.subtotal).toBe(3000);
@@ -104,6 +130,36 @@ describe("OrdersService", () => {
     expect(res.items[0]).toEqual({ productId: "p1", name: "Riz", quantity: 2, unitPrice: { amount: 1500, currency: "XOF" } });
   });
 
+  it("createForCustomer : applique les frais de livraison de la boutique", async () => {
+    const prisma = {
+      product: { findMany: jest.fn().mockResolvedValue([{ id: "p1", name: "Riz", price: 1500, storeId: "s1" }]) },
+      store: { findUnique: jest.fn().mockResolvedValue({ deliveryFee: 500 }) },
+      order: { count: jest.fn().mockResolvedValue(0), create: jest.fn().mockResolvedValue({ id: "o1", items: [] }) },
+    } as any;
+    const dto = {
+      items: [{ productId: "p1", quantity: 2 }], type: "FOOD", paymentMethod: "CASH",
+      deliveryAddress: { line1: "Rue 1", city: "Bamako" },
+    };
+    await svc(prisma).createForCustomer("me", dto);
+    const arg = prisma.order.create.mock.calls[0][0];
+    expect(prisma.store.findUnique).toHaveBeenCalledWith({ where: { id: "s1" }, select: { deliveryFee: true } });
+    expect(arg.data.deliveryFee).toBe(500);
+    expect(arg.data.total).toBe(3500);
+  });
+
+  it("createForCustomer : sans boutique rattachée -> tarif par défaut", async () => {
+    const prisma = {
+      product: { findMany: jest.fn().mockResolvedValue([{ id: "p1", name: "Riz", price: 1000 }]) },
+      order: { count: jest.fn().mockResolvedValue(0), create: jest.fn().mockResolvedValue({ id: "o1", items: [] }) },
+    } as any;
+    const dto = {
+      items: [{ productId: "p1", quantity: 1 }], type: "FOOD", paymentMethod: "CASH",
+      deliveryAddress: { line1: "Rue 1", city: "Bamako" },
+    };
+    await svc(prisma).createForCustomer("me", dto);
+    expect(prisma.order.create.mock.calls[0][0].data.deliveryFee).toBe(1000);
+  });
+
   it("createForCustomer : district par défaut null quand absent", async () => {
     const prisma = {
       product: { findMany: jest.fn().mockResolvedValue([{ id: "p1", name: "Riz", price: 1000 }]) },
@@ -113,7 +169,7 @@ describe("OrdersService", () => {
       items: [{ productId: "p1", quantity: 1 }], type: "FOOD", paymentMethod: "WAVE",
       deliveryAddress: { line1: "Rue 2", city: "Bamako" },
     };
-    await new OrdersService(prisma).createForCustomer("me", dto);
+    await svc(prisma).createForCustomer("me", dto);
     const arg = prisma.order.create.mock.calls[0][0];
     expect(arg.data.addressDistrict).toBeNull();
     expect(arg.data.reference).toBe("MLP-2026-000001");
@@ -127,7 +183,7 @@ describe("OrdersService", () => {
         count: jest.fn().mockResolvedValue(1),
       },
     } as any;
-    const res = await new OrdersService(prisma).listMine("me", 1, 10, "PENDING");
+    const res = await svc(prisma).listMine("me", 1, 10, "PENDING");
     expect(res.data).toHaveLength(1);
     expect(res.meta.total).toBe(1);
     expect(prisma.order.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { customerId: "me", status: "PENDING" } }));
@@ -137,7 +193,7 @@ describe("OrdersService", () => {
     const prisma = {
       order: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
     } as any;
-    await new OrdersService(prisma).listMine("me", 2, 5);
+    await svc(prisma).listMine("me", 2, 5);
     expect(prisma.order.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { customerId: "me" }, skip: 5, take: 5 }));
   });
 
@@ -148,7 +204,7 @@ describe("OrdersService", () => {
         count: jest.fn().mockResolvedValue(1),
       },
     } as any;
-    const res = await new OrdersService(prisma).listAdmin(1, 10, "CONFIRMED");
+    const res = await svc(prisma).listAdmin(1, 10, "CONFIRMED");
     expect(res.data).toHaveLength(1);
     expect(prisma.order.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { status: "CONFIRMED" } }));
   });
@@ -157,34 +213,34 @@ describe("OrdersService", () => {
     const prisma = {
       order: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
     } as any;
-    await new OrdersService(prisma).listAdmin(1, 10);
+    await svc(prisma).listAdmin(1, 10);
     expect(prisma.order.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: {} }));
   });
 
   it("get : introuvable -> NotFound", async () => {
     const prisma = { order: { findUnique: jest.fn().mockResolvedValue(null) } } as any;
-    await expect(new OrdersService(prisma).get("o1")).rejects.toThrow(NotFoundException);
+    await expect(svc(prisma).get("o1")).rejects.toThrow(NotFoundException);
   });
 
   it("get : renvoie la commande mappée", async () => {
     const prisma = {
       order: { findUnique: jest.fn().mockResolvedValue({ id: "o1", reference: "R1", customerId: "me", type: "FOOD", status: "PENDING", subtotal: 100, deliveryFee: 1000, total: 1100, createdAt: new Date(0), items: [] }) },
     } as any;
-    const res = await new OrdersService(prisma).get("o1");
+    const res = await svc(prisma).get("o1");
     expect(res.id).toBe("o1");
     expect(res.total).toEqual({ amount: 1100, currency: "XOF" });
   });
 
   it("tracking : introuvable -> NotFound", async () => {
     const prisma = { order: { findUnique: jest.fn().mockResolvedValue(null) } } as any;
-    await expect(new OrdersService(prisma).tracking("o1")).rejects.toThrow(NotFoundException);
+    await expect(svc(prisma).tracking("o1")).rejects.toThrow(NotFoundException);
   });
 
   it("tracking : renvoie position + eta quand disponibles", async () => {
     const prisma = {
       order: { findUnique: jest.fn().mockResolvedValue({ id: "o1", status: "ASSIGNED", delivery: { driverLat: 12.6, driverLng: -8.0, etaMinutes: 15 } }) },
     } as any;
-    const res = await new OrdersService(prisma).tracking("o1");
+    const res = await svc(prisma).tracking("o1");
     expect(res.driverLocation).toEqual({ lat: 12.6, lng: -8.0 });
     expect(res.etaMinutes).toBe(15);
   });
@@ -193,19 +249,19 @@ describe("OrdersService", () => {
     const prisma = {
       order: { findUnique: jest.fn().mockResolvedValue({ id: "o1", status: "PENDING", delivery: null }) },
     } as any;
-    const res = await new OrdersService(prisma).tracking("o1");
+    const res = await svc(prisma).tracking("o1");
     expect(res.driverLocation).toBeUndefined();
     expect(res.etaMinutes).toBeNull();
   });
 
   it("cancel : introuvable -> NotFound", async () => {
     const prisma = { order: { findUnique: jest.fn().mockResolvedValue(null) } } as any;
-    await expect(new OrdersService(prisma).cancel("o1")).rejects.toThrow(NotFoundException);
+    await expect(svc(prisma).cancel("o1")).rejects.toThrow(NotFoundException);
   });
 
   it("cancel : statut non annulable -> BadRequest", async () => {
     const prisma = { order: { findUnique: jest.fn().mockResolvedValue({ id: "o1", status: "DELIVERED" }) } } as any;
-    await expect(new OrdersService(prisma).cancel("o1")).rejects.toThrow(BadRequestException);
+    await expect(svc(prisma).cancel("o1")).rejects.toThrow(BadRequestException);
   });
 
   it("cancel : annule une commande annulable", async () => {
@@ -215,7 +271,7 @@ describe("OrdersService", () => {
         update: jest.fn().mockResolvedValue({ id: "o1", reference: "R1", customerId: "me", type: "FOOD", status: "CANCELLED", subtotal: 1, deliveryFee: 1, total: 2, createdAt: new Date(0), items: [] }),
       },
     } as any;
-    const res = await new OrdersService(prisma).cancel("o1");
+    const res = await svc(prisma).cancel("o1");
     expect(prisma.order.update).toHaveBeenCalledWith({ where: { id: "o1" }, data: { status: "CANCELLED" } });
     expect(res.status).toBe("CANCELLED");
   });

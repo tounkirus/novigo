@@ -17,6 +17,7 @@ const mapStore = (s: any) => ({
   coverUrl: s.coverUrl,
   rating: s.rating,
   isOpen: s.isOpen,
+  deliveryFee: money(s.deliveryFee),
   productCount: s._count?.products ?? undefined,
 });
 
