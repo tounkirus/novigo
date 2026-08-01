@@ -88,6 +88,25 @@ les préfixes **finance** ci-dessous sont routés explicitement vers Spring ; **
 - **Cross-domain** : jamais d'écriture croisée. Ex. : Spring a besoin d'une commande → il la connaît
   par `orderId` (reçu via événement) et ne lit/écrit que ses propres tables finance.
 
+### 4 bis. Semer le catalogue depuis un clone neuf
+
+`malipro/backend/prisma/seed-catalog.ts` lit **`malipro/backend/prisma/catalog.json`** (≈ 1 450
+commerces, 43 000 produits, 2 000 prestataires). Ce fichier pèse 21 Mo et **n'est pas versionné** :
+le garder dans l'historique git l'y aurait laissé pour toujours, alors qu'il est intégralement
+reproductible. Après un clone, il faut donc le régénérer **avant** de semer :
+
+```bash
+cd malipro/client-web
+# Le chemin de sortie doit être passé : sans argument, le script écrit
+# « catalog.json » dans le répertoire courant, où le seed ne le trouvera pas.
+npx tsx scripts/export-catalog.ts ../backend/prisma/catalog.json
+cd ../backend
+npx tsx prisma/seed-catalog.ts           # lit prisma/catalog.json, peuple la base
+```
+
+Sans cette étape, le seed échoue sur un fichier introuvable — ce n'est pas une régression, c'est la
+contrepartie assumée d'un dépôt qui reste léger.
+
 ## 5. Cohérence temps réel via événements (ADR-5)
 
 Bus **RabbitMQ**, exchange topic `novigo.events`. Flux de référence :
