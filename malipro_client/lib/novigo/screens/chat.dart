@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
-import '../theme.dart';
-import '../data/env.dart';
+
 import '../data/chat_api.dart';
+import '../data/env.dart';
 import '../data/realtime_client.dart';
+import '../ui/ui.dart';
 
 class _Conversation {
   final String title;
@@ -51,8 +52,15 @@ class ChatScreen extends StatefulWidget {
 }
 
 class _ChatScreenState extends State<ChatScreen> {
-  List<_Conversation> _conversations = ChatScreen._mock;
+  /// Hors ligne, la liste de démonstration ; en live, ce que le serveur répond —
+  /// y compris rien du tout. Auparavant, une boîte réellement vide affichait
+  /// trois conversations fictives.
+  late List<_Conversation> _conversations =
+      NovigoEnv.live ? const [] : ChatScreen._mock;
+
   bool _loading = false;
+  bool _failed = false;
+  bool _loaded = false;
 
   @override
   void initState() {
@@ -61,34 +69,45 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _load() async {
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _failed = false;
+    });
     try {
       final live = await chatApi.conversations();
       if (!mounted) return;
-      // Ne bascule en live que si le backend a réellement des conversations.
-      if (live.isNotEmpty) {
-        setState(() => _conversations = live.map(_Conversation.fromLive).toList());
-      }
+      setState(() {
+        _conversations = live.map(_Conversation.fromLive).toList();
+        _loaded = true;
+        _loading = false;
+      });
     } catch (_) {
-      // repli silencieux : liste mock premium
-    } finally {
-      if (mounted) setState(() => _loading = false);
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _failed = true;
+      });
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final gutter = Rs.of(context).gutter;
+    final firstLoad = _loading && !_loaded;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Messages', style: T.h2),
         actions: [
           if (_loading)
             const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 18),
-              child: SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: NC.brand)),
+              padding: EdgeInsets.symmetric(horizontal: Sp.lg + 2),
+              child: Center(
+                child: SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: NC.brand)),
+              ),
             ),
         ],
       ),
@@ -96,25 +115,48 @@ class _ChatScreenState extends State<ChatScreen> {
         top: false,
         child: RefreshIndicator(
           onRefresh: NovigoEnv.live ? _load : () async {},
-          child: ListView.separated(
-            padding: const EdgeInsets.all(16),
-            itemCount: _conversations.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 12),
-            itemBuilder: (context, i) => _tile(context, _conversations[i]),
+          color: NC.brand,
+          backgroundColor: NC.surface,
+          child: NovigoContentWidth(
+            child: ListView(
+              padding: EdgeInsets.fromLTRB(gutter, Sp.md, gutter, Sp.xl),
+              children: [
+                if (_failed) NovigoOfflineBanner(onRetry: _load),
+                if (firstLoad)
+                  for (var i = 0; i < 3; i++) ...[
+                    if (i > 0) const SizedBox(height: Sp.md),
+                    const NovigoSkeleton(height: 84, radius: R.lg),
+                  ]
+                else if (_conversations.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.only(top: Sp.xxl),
+                    child: NovigoEmptyState.empty(
+                      icon: Icons.forum_outlined,
+                      title: 'Aucun message',
+                      message:
+                          'Vos échanges avec les coursiers, les commerces et le support arriveront ici.',
+                    ),
+                  )
+                else
+                  for (var i = 0; i < _conversations.length; i++) ...[
+                    if (i > 0) const SizedBox(height: Sp.md),
+                    FadeSlideIn(index: i, child: _tile(context, _conversations[i])),
+                  ],
+              ],
+            ),
           ),
         ),
       ),
     );
   }
 
-  Widget _tile(BuildContext context, _Conversation c) => GestureDetector(
-        behavior: HitTestBehavior.opaque,
+  Widget _tile(BuildContext context, _Conversation c) => NovigoCard(
+        padding: const EdgeInsets.all(Sp.md + 2),
+        semanticLabel: '${c.title}, ${c.lastMessage}, ${c.time}'
+            '${c.unread > 0 ? ', ${c.unread} non lus' : ''}',
         onTap: () => Navigator.of(context).push(MaterialPageRoute(
             builder: (_) => ChatThreadScreen(title: c.title, conversationId: c.conversationId))),
-        child: Container(
-          padding: const EdgeInsets.all(14),
-          decoration: cardDeco(radius: R.lg),
-          child: Row(children: [
+        child: Row(children: [
             Container(
               width: 52,
               height: 52,
@@ -162,7 +204,6 @@ class _ChatScreenState extends State<ChatScreen> {
               ]),
             ),
           ]),
-        ),
       );
 }
 
