@@ -39,6 +39,27 @@ export class DeliveriesController {
     return this.deliveries.start(id, user.id);
   }
 
+  /// « Je suis arrivé » : démarre le compteur d'attente (CDC v0.75 §3).
+  @Post(":id/arrive")
+  @Roles("DRIVER")
+  arrive(@Param("id") id: string, @CurrentUser() user: AuthUser) {
+    return this.deliveries.arrive(id, user.id);
+  }
+
+  /// Attente écoulée et droits ouverts (§3) : le serveur compte, pas l'appli.
+  @Get(":id/waiting")
+  @Roles("DRIVER")
+  waiting(@Param("id") id: string, @CurrentUser() user: AuthUser) {
+    return this.deliveries.waiting(id, user.id);
+  }
+
+  /// Abandon pour client absent, après le délai d'attente (§3).
+  @Post(":id/absent")
+  @Roles("DRIVER")
+  absent(@Param("id") id: string, @CurrentUser() user: AuthUser) {
+    return this.deliveries.cancelForAbsence(id, user.id);
+  }
+
   @Post(":id/complete")
   @Roles("DRIVER")
   complete(@Param("id") id: string, @CurrentUser() user: AuthUser) {

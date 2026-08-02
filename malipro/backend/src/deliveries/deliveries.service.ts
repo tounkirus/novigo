@@ -7,6 +7,7 @@ import { NotificationsService } from "../notifications/notifications.service";
 import { EventBusService } from "../common/events/event-bus.service";
 import { BrainService } from "../brain/brain.service";
 import { serviceKeyForOrderType } from "../brain/service-catalog";
+import { assessWaiting } from "../policies/waiting-policy";
 
 function mapDelivery(d: any) {
   return {
@@ -142,6 +143,79 @@ export class DeliveriesService {
     this.realtime.emitTracking(d.orderId, { orderId: d.orderId, status: "IN_TRANSIT" });
     await this.brain.onDeliveryStarted(d.orderId, userId).catch(() => undefined);
     return mapDelivery(updated);
+  }
+
+  /**
+   * « Je suis arrivé » (CDC v0.75 §3).
+   *
+   * C'est le SEUL événement qui démarre le compteur d'attente facturable :
+   * ni l'acceptation, ni la mise en route ne l'enclenchent. Sans cet appui,
+   * aucune compensation d'absence ne peut être réclamée.
+   *
+   * Idempotent : un second appui ne redémarre pas le compteur, sans quoi un
+   * livreur pourrait repousser indéfiniment le délai des 20 minutes — ou, à
+   * l'inverse, perdre l'attente déjà écoulée par une fausse manipulation.
+   */
+  async arrive(id: string, userId: string) {
+    const d = await this.ownDelivery(id, userId);
+    if (["COMPLETED", "FAILED"].includes(d.status)) {
+      throw new BadRequestException("Cette course est terminée.");
+    }
+    if (d.arrivedAt) return mapDelivery(d);
+
+    const updated = await this.prisma.delivery.update({
+      where: { id },
+      data: { status: "ARRIVED", arrivedAt: new Date() },
+    });
+    this.realtime.emitTracking(d.orderId, { orderId: d.orderId, status: "ARRIVED" });
+    const order = await this.prisma.order.findUnique({ where: { id: d.orderId } });
+    if (order) {
+      await this.notifications.create(order.customerId, "ORDER_ARRIVED", "Votre livreur est arrivé",
+        "Votre livreur vous attend au point de livraison.", { orderId: d.orderId });
+    }
+    return mapDelivery(updated);
+  }
+
+  /**
+   * Attente en cours au point de livraison, et droits qu'elle ouvre (§3).
+   *
+   * Le livreur interroge ce point pour savoir s'il peut abandonner la course et
+   * avec quelle compensation — plutôt que de compter les minutes lui-même.
+   */
+  async waiting(id: string, userId: string) {
+    const d = await this.ownDelivery(id, userId);
+    return assessWaiting(
+      { location: "CUSTOMER", arrivedAt: d.arrivedAt ?? null },
+      new Date(),
+    );
+  }
+
+  /**
+   * Abandon pour absence du client (§3) : autorisé seulement une fois le délai
+   * écoulé, et il ouvre droit à une compensation pour le livreur.
+   */
+  async cancelForAbsence(id: string, userId: string) {
+    const d = await this.ownDelivery(id, userId);
+    const assessment = assessWaiting(
+      { location: "CUSTOMER", arrivedAt: d.arrivedAt ?? null },
+      new Date(),
+    );
+    if (!assessment.mayCancelForAbsence) {
+      throw new BadRequestException(
+        d.arrivedAt
+          ? "Le délai d'attente n'est pas encore écoulé."
+          : "Appuyez d'abord sur « Je suis arrivé ».",
+      );
+    }
+    const updated = await this.prisma.delivery.update({
+      where: { id }, data: { status: "FAILED", completedAt: new Date() },
+    });
+    await this.prisma.order.update({
+      where: { id: d.orderId },
+      data: { status: "CANCELLED", cancellationReason: "Client absent au point de livraison" },
+    });
+    this.realtime.emitTracking(d.orderId, { orderId: d.orderId, status: "CANCELLED" });
+    return { ...mapDelivery(updated), compensation: assessment.compensation };
   }
 
   async complete(id: string, userId: string) {
