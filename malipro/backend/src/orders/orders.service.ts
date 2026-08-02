@@ -4,10 +4,14 @@ import { paginate } from "../common/dto/pagination.dto";
 import { RealtimeGateway } from "../realtime/realtime.gateway";
 import { EventBusService } from "../common/events/event-bus.service";
 import { BrainService } from "../brain/brain.service";
+import { roadMeters, zoneCenter } from "../brain/geo";
+import { quoteDelivery } from "../pricing/delivery-tariff";
+import { assessCancellation, type CourseStage } from "../policies/cancellation-policy";
 
 const money = (amount: number, currency = "XOF") => ({ amount, currency });
 
-/// Tarif appliqué quand la commande n'est rattachée à aucune boutique.
+/// Tarif de repli, appliqué quand la distance de la course est indéterminée
+/// (boutique sans coordonnées, ou quartier de livraison inconnu du référentiel).
 const DEFAULT_DELIVERY_FEE = 1000;
 
 function mapOrder(o: any) {
@@ -111,8 +115,21 @@ export class OrdersService {
     // Frais de livraison : valeur portée par la boutique, c'est-à-dire exactement
     // celle que /stores a renvoyée au client. Sans boutique rattachée, tarif par défaut.
     const store = storeId
-      ? await this.prisma.store.findUnique({ where: { id: storeId }, select: { deliveryFee: true } })
+      ? await this.prisma.store.findUnique({
+          where: { id: storeId },
+          select: { deliveryFee: true, lat: true, lng: true },
+        })
       : null;
+
+    // Distance réelle de la course : du point de retrait au quartier de livraison.
+    // Sans coordonnées de boutique ou sans quartier connu, elle reste indéterminée
+    // et l'ancien tarif s'applique — mieux vaut un prix conservateur qu'un prix
+    // calculé sur une distance inventée.
+    const dropoff = zoneCenter(dto.deliveryAddress?.district);
+    const pickup =
+      store?.lat != null && store?.lng != null ? { lat: store.lat, lng: store.lng } : undefined;
+    const distanceKm =
+      pickup && dropoff ? roadMeters(pickup, dropoff) / 1000 : null;
 
     // NOVIGO Brain : c'est LUI qui arrête le tarif de livraison et le délai annoncé.
     // Quand la boutique impose ses frais, le Brain les respecte et se contente de
@@ -128,7 +145,12 @@ export class OrdersService {
         partnerFee: store ? store.deliveryFee : null,
       })
       .catch(() => null);
-    const deliveryFee = quote?.price.amount ?? store?.deliveryFee ?? DEFAULT_DELIVERY_FEE;
+    // Barème officiel de la course (CDC v0.75 §2) : il fait autorité dès que la
+    // distance est connue. Le Brain conserve l'ETA et l'explication du prix, mais
+    // ne fixe plus le montant — deux barèmes concurrents donnaient deux prix.
+    const tariffed = distanceKm == null ? null : quoteDelivery({ distanceKm });
+    const deliveryFee =
+      tariffed?.total ?? quote?.price.amount ?? store?.deliveryFee ?? DEFAULT_DELIVERY_FEE;
     const total = subtotal + deliveryFee;
     const count = await this.prisma.order.count();
     const reference = `MLP-2026-${String(count + 1).padStart(6, "0")}`;
@@ -253,16 +275,76 @@ export class OrdersService {
     };
   }
 
+  /// Étape de la course au sens du barème d'annulation (CDC v0.75 §4).
+  ///
+  /// Le statut de commande décrit la préparation ; l'annulation, elle, se juge à
+  /// l'avancement du LIVREUR. Un plat en préparation dont personne n'est encore
+  /// venu s'occuper n'a coûté de déplacement à personne.
+  private stageOf(order: { status: string }, delivery: { status?: string | null } | null): CourseStage {
+    switch (delivery?.status) {
+      case "PICKED_UP":
+      case "EN_ROUTE_DROPOFF":
+        return "IN_DELIVERY";
+      case "ARRIVED":
+        return "ARRIVED";
+      case "ASSIGNED":
+      case "ACCEPTED":
+      case "EN_ROUTE_PICKUP":
+        return "ACCEPTED";
+      default:
+        // Aucun livreur engagé : personne ne s'est déplacé, l'annulation reste
+        // gratuite même si le commerçant a déjà confirmé la commande.
+        return "PENDING";
+    }
+  }
+
+  /// Annulations facturées au client depuis le 1er du mois — c'est ce compteur
+  /// que le quota de cinq gratuités consomme.
+  private async billedCancellationsThisMonth(customerId: string): Promise<number> {
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    return this.prisma.order.count({
+      where: {
+        customerId,
+        status: "CANCELLED",
+        cancellationFee: { gt: 0 },
+        // `Order` ne porte pas de date de mise à jour : on compte sur le mois de
+        // création. L'écart ne concerne qu'une commande créée fin de mois et
+        // annulée début du suivant — assez rare pour ne pas justifier une
+        // colonne de plus, mais à corriger si le quota devient contesté.
+        createdAt: { gte: monthStart },
+      },
+    });
+  }
+
   async cancel(id: string) {
-    const o = await this.prisma.order.findUnique({ where: { id } });
+    const o = await this.prisma.order.findUnique({ where: { id }, include: { delivery: true } });
     if (!o) throw new NotFoundException("Commande introuvable.");
     const cancellable = ["PENDING", "CONFIRMED", "PREPARING", "READY", "ASSIGNED"];
     if (!cancellable.includes(o.status)) {
       throw new BadRequestException("Cette commande ne peut plus être annulée.");
     }
-    const updated = await this.prisma.order.update({ where: { id }, data: { status: "CANCELLED" } });
+
+    // Barème officiel (§4) : l'étape atteinte fixe le montant, le quota mensuel
+    // peut l'effacer.
+    const outcome = assessCancellation({
+      stage: this.stageOf(o, o.delivery),
+      acceptedAt: o.delivery?.acceptedAt ?? null,
+      cancelledAt: new Date(),
+      orderTotal: o.total,
+      billedCancellationsThisMonth: await this.billedCancellationsThisMonth(o.customerId),
+    });
+
+    const updated = await this.prisma.order.update({
+      where: { id },
+      data: {
+        status: "CANCELLED",
+        cancellationFee: outcome.fee,
+        cancellationReason: outcome.reason,
+      },
+    });
     // Le Brain apprend aussi des échecs (principe n°4).
-    await this.brain.onOrderCancelled(id, "Annulation client").catch(() => undefined);
-    return mapOrder(updated);
+    await this.brain.onOrderCancelled(id, outcome.reason).catch(() => undefined);
+    return { ...mapOrder(updated), cancellation: outcome };
   }
 }

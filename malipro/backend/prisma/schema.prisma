@@ -97,6 +97,9 @@ enum DeliveryStatus {
   EN_ROUTE_PICKUP
   PICKED_UP
   EN_ROUTE_DROPOFF
+  /// Le livreur a appuyé sur « Je suis arrivé » (CDC v0.75 §3) : c'est le seul
+  /// événement qui démarre le compteur d'attente facturable.
+  ARRIVED
   COMPLETED
   FAILED
 }
@@ -201,6 +204,11 @@ model Order {
   deliveryFee     Int
   total           Int
   currency        String         @default("XOF")
+  /// Frais d'annulation réellement facturés (CDC v0.75 §4). 0 = annulation
+  /// gratuite, que ce soit par le barème ou par le quota mensuel de gratuités.
+  cancellationFee Int            @default(0)
+  /// Motif lisible, conservé pour le support et les litiges.
+  cancellationReason String?
   paymentMethod   PaymentMethod?
   addressLine1    String?
   addressCity     String?
@@ -239,6 +247,8 @@ model Delivery {
   etaMinutes     Int?
   distanceMeters Int?
   acceptedAt     DateTime?
+  /// Appui sur « Je suis arrivé » (§3). Départ du compteur d'attente.
+  arrivedAt      DateTime?
   completedAt    DateTime?
 }
 

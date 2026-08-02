@@ -142,7 +142,12 @@ describe("OrdersService", () => {
     };
     await svc(prisma).createForCustomer("me", dto);
     const arg = prisma.order.create.mock.calls[0][0];
-    expect(prisma.store.findUnique).toHaveBeenCalledWith({ where: { id: "s1" }, select: { deliveryFee: true } });
+    // Les coordonnées sont lues pour calculer la distance réelle (CDC §2) ;
+    // cette boutique n'en a pas, donc le tarif de repli s'applique.
+    expect(prisma.store.findUnique).toHaveBeenCalledWith({
+      where: { id: "s1" },
+      select: { deliveryFee: true, lat: true, lng: true },
+    });
     expect(arg.data.deliveryFee).toBe(500);
     expect(arg.data.total).toBe(3500);
   });
@@ -264,15 +269,39 @@ describe("OrdersService", () => {
     await expect(svc(prisma).cancel("o1")).rejects.toThrow(BadRequestException);
   });
 
-  it("cancel : annule une commande annulable", async () => {
+  it("cancel : annule une commande annulable, sans frais avant prise en charge", async () => {
     const prisma = {
       order: {
-        findUnique: jest.fn().mockResolvedValue({ id: "o1", status: "PENDING" }),
+        findUnique: jest.fn().mockResolvedValue({
+          id: "o1", status: "PENDING", customerId: "me", total: 4500, delivery: null,
+        }),
+        count: jest.fn().mockResolvedValue(0),
         update: jest.fn().mockResolvedValue({ id: "o1", reference: "R1", customerId: "me", type: "FOOD", status: "CANCELLED", subtotal: 1, deliveryFee: 1, total: 2, createdAt: new Date(0), items: [] }),
       },
     } as any;
     const res = await svc(prisma).cancel("o1");
-    expect(prisma.order.update).toHaveBeenCalledWith({ where: { id: "o1" }, data: { status: "CANCELLED" } });
+    // Aucun livreur engagé : gratuit (CDC v0.75 §4).
+    expect(prisma.order.update.mock.calls[0][0].data).toMatchObject({
+      status: "CANCELLED",
+      cancellationFee: 0,
+    });
     expect(res.status).toBe("CANCELLED");
+  });
+
+  it("cancel : facture 500 FCFA après l'arrivée du livreur (§4)", async () => {
+    const prisma = {
+      order: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: "o1", status: "ASSIGNED", customerId: "me", total: 4500,
+          delivery: { status: "ARRIVED", acceptedAt: new Date(0) },
+        }),
+        // Quota mensuel de gratuités déjà épuisé : on mesure le tarif nu.
+        count: jest.fn().mockResolvedValue(5),
+        update: jest.fn().mockResolvedValue({ id: "o1", reference: "R1", customerId: "me", type: "FOOD", status: "CANCELLED", subtotal: 1, deliveryFee: 1, total: 2, createdAt: new Date(0), items: [] }),
+      },
+    } as any;
+    const res = await svc(prisma).cancel("o1");
+    expect(prisma.order.update.mock.calls[0][0].data.cancellationFee).toBe(500);
+    expect(res.cancellation.feeBeforeAllowance).toBe(500);
   });
 });
