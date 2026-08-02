@@ -70,7 +70,9 @@ services:
       REDIS_URL: redis://redis:6379
       RABBITMQ_URL: amqp://novigo:novigo@rabbitmq:5672        # bus novigo.events (P0-4)
       PORT: "8080"
-      CORS_ORIGIN: http://localhost:5173,http://localhost:8088
+      # Le web de référence est servi sur :5174 ; les deux dernières origines ne
+      # servent qu'à l'accès depuis un autre poste du réseau local.
+      CORS_ORIGIN: http://localhost:5173,http://localhost:5174,http://localhost:8088,http://${NOVIGO_PUBLIC_HOST:-localhost}:5174,http://${NOVIGO_PUBLIC_HOST:-localhost}:8088
       MINIO_ENDPOINT: minio
       MINIO_PORT: "9000"
       MINIO_ACCESS_KEY: novigo
@@ -100,7 +102,7 @@ services:
       RABBITMQ_PORT: "5672"
       RABBITMQ_USER: novigo
       RABBITMQ_PASSWORD: novigo
-      CORS_ORIGINS: http://localhost:5173,http://localhost:8088
+      CORS_ORIGINS: http://localhost:5173,http://localhost:5174,http://localhost:8088,http://${NOVIGO_PUBLIC_HOST:-localhost}:5174,http://${NOVIGO_PUBLIC_HOST:-localhost}:8088
     expose: ["8081"]           # interne au réseau : joignable UNIQUEMENT via le Gateway
 
   # ------------------------------------------------ NOVIGO API GATEWAY ------
@@ -117,7 +119,12 @@ services:
       context: ./malipro/client-web
       args:
         NEXT_PUBLIC_API_MODE: live
-        NEXT_PUBLIC_API_BASE_URL: http://localhost:8088/api/v1   # via le Gateway
+        # `NEXT_PUBLIC_*` est figé dans le bundle au moment du build : l'URL doit
+        # donc être celle que le NAVIGATEUR saura joindre. « localhost » convient
+        # tant qu'on ouvre le site sur cette machine ; pour y accéder depuis un
+        # autre poste du réseau local, rebâtir avec l'IP de l'hôte :
+        #   NOVIGO_PUBLIC_HOST=192.168.1.x docker compose -f docker-compose.novigo.yml up -d --build web
+        NEXT_PUBLIC_API_BASE_URL: http://${NOVIGO_PUBLIC_HOST:-localhost}:8088/api/v1
     depends_on: [gateway]
     ports: ["5174:3000"]       # http://localhost:5174 (5173 souvent pris par next dev)
 
