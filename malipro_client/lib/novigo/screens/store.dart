@@ -5,8 +5,9 @@ import '../data/catalog_model.dart';
 import '../favorites.dart';
 import '../models.dart';
 import '../ui/ui.dart';
-import '../widgets.dart' show Img, Pill, QtyStepper, Stars;
+import '../widgets.dart' show Img, Pill, Stars;
 import 'cart_screen.dart';
+import 'product_detail.dart';
 
 /// Fiche boutique — deux sections : l'identité du commerce, puis son menu.
 ///
@@ -51,9 +52,13 @@ class _StoreScreenState extends State<StoreScreen> {
 
   List<String> get _sections => store.products.map((p) => p.section).toSet().toList();
 
-  void _openProduct(Product p) => showNovigoSheet(
-        context,
-        builder: (_) => _ProductSheet(product: p, store: store),
+  /// Ouvre la fiche produit plein écran.
+  ///
+  /// La feuille inférieure ne laissait la place ni à la photo en grand, ni à la
+  /// description complète : le produit — ce que l'utilisateur vient réellement
+  /// choisir — occupait un tiers de l'écran.
+  void _openProduct(Product p) => Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => ProductDetailScreen(product: p, store: store)),
       );
 
   @override
@@ -319,65 +324,3 @@ class _MenuSkeleton extends StatelessWidget {
       );
 }
 
-/// Feuille produit : visuel, description, quantité, ajout au panier.
-class _ProductSheet extends StatelessWidget {
-  final Product product;
-  final Store store;
-  const _ProductSheet({required this.product, required this.store});
-
-  @override
-  Widget build(BuildContext context) {
-    return NovigoBottomSheet(
-      footer: Row(children: [
-        ListenableBuilder(
-          listenable: cart,
-          builder: (_, __) => QtyStepper(
-            qty: cart.qtyOf(product).clamp(0, 99),
-            onAdd: () => cart.add(product, store),
-            onRemove: () => cart.remove(product),
-          ),
-        ),
-        const SizedBox(width: Sp.md + 2),
-        Expanded(
-          child: NovigoButton(
-            label: 'Ajouter au panier',
-            onPressed: () {
-              if (cart.qtyOf(product) == 0) cart.add(product, store);
-              Navigator.pop(context);
-            },
-          ),
-        ),
-      ]),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        _visual(),
-        const SizedBox(height: Sp.lg),
-        Text(product.name, style: T.h2),
-        const SizedBox(height: Sp.xs + 2),
-        Text(product.desc, style: T.muted),
-        const SizedBox(height: Sp.md),
-        Row(children: [
-          Text(fcfa(product.price),
-              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: NC.ink)),
-          if (product.discount != null) ...[
-            const SizedBox(width: Sp.md),
-            Pill('-${product.discount}%', color: Colors.white, bg: NC.brand),
-          ],
-        ]),
-      ]),
-    );
-  }
-
-  Widget _visual() => product.isTile
-      ? Container(
-          height: 190,
-          width: double.infinity,
-          decoration: BoxDecoration(
-            color: (product.tone ?? NC.brand).withValues(alpha: 0.14),
-            borderRadius: BorderRadius.circular(R.lg),
-          ),
-          alignment: Alignment.center,
-          child: Icon(product.icon, color: product.tone ?? NC.brand, size: 80),
-        )
-      : Img(product.image,
-          height: 190, width: double.infinity, radius: BorderRadius.circular(R.lg));
-}

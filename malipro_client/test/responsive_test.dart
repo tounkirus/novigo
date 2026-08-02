@@ -19,6 +19,7 @@ import 'package:malipro_client/novigo/screens/real_estate.dart';
 import 'package:malipro_client/novigo/screens/settings.dart';
 import 'package:malipro_client/novigo/screens/notifications.dart';
 import 'package:malipro_client/novigo/screens/order_detail.dart';
+import 'package:malipro_client/novigo/screens/product_detail.dart';
 import 'package:malipro_client/novigo/screens/store.dart';
 import 'package:malipro_client/novigo/screens/support.dart';
 import 'package:malipro_client/novigo/screens/tracking.dart';
@@ -89,6 +90,13 @@ void main() {
   matrix('Catégorie Repas', () => CategoryScreen(category: categories.first));
   matrix('Catégorie Colis', () => CategoryScreen(category: categories.last));
   matrix('Fiche boutique', () => StoreScreen(store: catalog.allStores.first));
+  matrix(
+    'Fiche produit',
+    () => ProductDetailScreen(
+      product: catalog.allStores.first.products.first,
+      store: catalog.allStores.first,
+    ),
+  );
   matrix('Pour vous', () => const ForYouScreen());
   matrix('NOVIGO Brain', () => const BrainAskScreen());
   matrix('Panier vide', () => const CartScreen());
