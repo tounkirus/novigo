@@ -1,6 +1,7 @@
 import { ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../common/prisma/prisma.service";
 import { paginate } from "../common/dto/pagination.dto";
+import { expiryOf } from "./quotation.rules";
 
 const money = (amount: number) => ({ amount, currency: "XOF" });
 const mapArtisan = (a: any) => ({
@@ -144,7 +145,13 @@ export class ArtisansService {
     return { ...mapPublicArtisan(a), services: (a as any).services.map(mapService) };
   }
 
-  /** Le client envoie une demande de devis à un artisan (statut REQUESTED). */
+  /**
+   * Le client sollicite un devis.
+   *
+   * Le document naît en brouillon : c'est une demande, pas encore une offre.
+   * Tant que l'artisan ne l'a pas chiffrée et envoyée (ch.4 §3), elle ne peut
+   * pas être acceptée.
+   */
   async requestQuotation(customerId: string, artisanId: string, dto: any) {
     const a = await this.prisma.artisan.findUnique({ where: { id: artisanId } });
     if (!a) throw new NotFoundException("Artisan introuvable.");
@@ -156,7 +163,8 @@ export class ArtisansService {
         customerId,
         description: (dto?.description ?? "").toString(),
         amount,
-        status: "REQUESTED",
+        status: "DRAFT",
+        expiresAt: expiryOf(new Date()),
       },
     });
     return mapQuotation(q);
@@ -173,8 +181,14 @@ export class ArtisansService {
   async createQuotation(userId: string, dto: any) {
     const a = await this.artisanFor(userId);
     const q = await this.prisma.quotation.create({
-      data: { artisanId: a.id, customerId: dto.customerId, description: dto.description,
-              amount: dto.amount?.amount ?? dto.amount, status: "SENT" },
+      data: {
+        artisanId: a.id, customerId: dto.customerId, description: dto.description,
+        amount: dto.amount?.amount ?? dto.amount,
+        status: "SENT",
+        sentAt: new Date(),
+        // Validité de 15 jours, comptée depuis l'envoi (ch.4 §7).
+        expiresAt: expiryOf(new Date()),
+      },
     });
     return mapQuotation(q);
   }

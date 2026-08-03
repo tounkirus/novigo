@@ -565,16 +565,110 @@ model ArtisanService {
   imageUrl        String?
 }
 
+/// Qui fournit un matériau. Ce qui vient du client n'est jamais facturé
+/// (Module Artisans, ch.4 §5).
+enum SuppliedBy {
+  ARTISAN
+  CLIENT
+}
+
+/// Nature d'une ligne de devis.
+enum QuotationLineKind {
+  LABOUR
+  MATERIAL
+}
+
+enum QuotationStatus {
+  DRAFT
+  SENT
+  ACCEPTED
+  REFUSED
+  EXPIRED
+}
+
+/// Devis (Module Artisans, ch.4).
+///
+/// Le versionnement est porté par une chaîne : chaque modification crée une
+/// nouvelle ligne pointant vers la précédente (`supersedesId`). Les anciennes
+/// versions restent en base — jamais écrasées — pour la traçabilité exigée au
+/// §6. Un devis accepté est verrouillé (`lockedAt`) et devient immuable.
 model Quotation {
   id          String   @id @default(uuid())
   artisan     Artisan  @relation(fields: [artisanId], references: [id])
   artisanId   String
   customerId  String
   description String
-  amount      Int
   currency    String   @default("XOF")
-  status      String   @default("DRAFT")
+  status      QuotationStatus @default(DRAFT)
+
+  /// Numéro de version, à partir de 1.
+  version     Int      @default(1)
+  /// Version que celle-ci remplace. `null` pour la première.
+  supersedes   Quotation?  @relation("QuotationVersions", fields: [supersedesId], references: [id])
+  supersedesId String?     @unique
+  supersededBy Quotation?  @relation("QuotationVersions")
+
+  /// Montants dérivés des lignes, figés à l'émission pour que le document PDF
+  /// et la base racontent toujours la même chose.
+  labourAmount    Int @default(0)
+  materialsAmount Int @default(0)
+  amount          Int
+
+  /// Acompte demandé : montant fixe OU pourcentage, jamais les deux (§9).
+  depositAmount  Int?
+  depositPercent Int?
+
+  /// Garantie reprise ensuite sur la facture (ch.5 §8).
+  warrantyMonths Int?
+  warrantyTerms  String?
+
+  /// Expiration : 15 jours après la création (§7).
+  expiresAt  DateTime
+  sentAt     DateTime?
+  acceptedAt DateTime?
+  refusedAt  DateTime?
+  /// Horodatage du verrouillage : au-delà, aucune modification n'est permise.
+  lockedAt   DateTime?
+
+  lines     QuotationLine[]
+  events    QuotationEvent[]
+  createdAt DateTime @default(now())
+
+  @@index([artisanId, status])
+  @@index([customerId, status])
+}
+
+/// Ligne d'un devis : main-d'œuvre ou matériau (§4 et §5).
+model QuotationLine {
+  id          String            @id @default(uuid())
+  quotation   Quotation         @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  quotationId String
+  kind        QuotationLineKind
+  label       String
+  quantity    Float             @default(1)
+  unitPrice   Int
+  /// Montant de la ligne. Vaut 0 pour un matériau fourni par le client : il
+  /// figure au devis pour mémoire, mais n'est pas facturé.
+  total       Int
+  suppliedBy  SuppliedBy        @default(ARTISAN)
+  position    Int               @default(0)
+
+  @@index([quotationId])
+}
+
+/// Journal d'audit du devis (§12). Écrit seulement, jamais modifié.
+model QuotationEvent {
+  id          String   @id @default(uuid())
+  quotation   Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  quotationId String
+  /// CREATED, REVISED, SENT, ACCEPTED, REFUSED, EXPIRED, DEPOSIT_PAID, CONVERTED
+  type        String
+  /// Auteur de l'action. `null` pour une transition automatique (expiration).
+  actorId     String?
+  payload     Json?
   createdAt   DateTime @default(now())
+
+  @@index([quotationId, createdAt])
 }
 
 model Notification {

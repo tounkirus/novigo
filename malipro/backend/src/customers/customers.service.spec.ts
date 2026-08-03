@@ -33,7 +33,11 @@ describe("CustomersService", () => {
   it("respondQuotation : accepte et met à jour", async () => {
     const prisma = {
       quotation: {
-        findUnique: jest.fn().mockResolvedValue({ id: "q1", customerId: "me" }),
+        // Devis envoyé et encore valide : l'acceptation exige les deux (ch.4 §7).
+        findUnique: jest.fn().mockResolvedValue({
+          id: "q1", customerId: "me", status: "SENT",
+          expiresAt: new Date(Date.now() + 5 * 24 * 3600_000), lockedAt: null,
+        }),
         update: jest.fn().mockResolvedValue({ id: "q1", status: "ACCEPTED" }),
       },
     } as any;

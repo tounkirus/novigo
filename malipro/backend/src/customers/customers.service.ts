@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../common/prisma/prisma.service";
 import { paginate } from "../common/dto/pagination.dto";
+import { refusalToAccept } from "../artisans/quotation.rules";
 
 const money = (amount: number, currency = "XOF") => ({ amount, currency });
 
@@ -46,19 +47,36 @@ export class CustomersService {
     return paginate(data, total, page, limit);
   }
 
-  /** Le client accepte ou refuse le devis proposé par l'artisan. */
+  /**
+   * Le client accepte ou refuse le devis proposé par l'artisan (ch.4 §8).
+   *
+   * L'acceptation verrouille le document : un devis accepté est un engagement
+   * commercial et ne peut plus être modifié (§6).
+   */
   async respondQuotation(customerId: string, quotationId: string, status: string) {
-    const allowed = ["ACCEPTED", "REJECTED"];
-    if (!allowed.includes(status)) {
-      throw new BadRequestException("Statut invalide (ACCEPTED ou REJECTED).");
+    // « REJECTED » reste accepté en entrée pour ne pas casser les applications
+    // déjà déployées, mais le statut stocké est celui du cahier des charges.
+    const decision = status === "REJECTED" ? "REFUSED" : status;
+    if (decision !== "ACCEPTED" && decision !== "REFUSED") {
+      throw new BadRequestException("Statut invalide (ACCEPTED ou REFUSED).");
     }
     const q = await this.prisma.quotation.findUnique({ where: { id: quotationId } });
     if (!q || q.customerId !== customerId) {
       throw new NotFoundException("Demande introuvable.");
     }
+    const now = new Date();
+    if (decision === "ACCEPTED") {
+      const refusal = refusalToAccept(
+        { status: q.status, expiresAt: q.expiresAt, lockedAt: q.lockedAt },
+        now,
+      );
+      if (refusal) throw new BadRequestException(refusal);
+    }
     const upd = await this.prisma.quotation.update({
       where: { id: quotationId },
-      data: { status },
+      data: decision === "ACCEPTED"
+        ? { status: "ACCEPTED", acceptedAt: now, lockedAt: now }
+        : { status: "REFUSED", refusedAt: now },
     });
     return { id: upd.id, status: upd.status };
   }
