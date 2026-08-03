@@ -1,7 +1,9 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import { PrismaService } from "../common/prisma/prisma.service";
 import { paginate } from "../common/dto/pagination.dto";
-import { refusalToAccept } from "../artisans/quotation.rules";
+import { computeDeposit, refusalToAccept } from "../artisans/quotation.rules";
+import { initialStatus, warrantyFromQuotation } from "../artisans/worksite.rules";
 
 const money = (amount: number, currency = "XOF") => ({ amount, currency });
 
@@ -72,13 +74,71 @@ export class CustomersService {
       );
       if (refusal) throw new BadRequestException(refusal);
     }
-    const upd = await this.prisma.quotation.update({
-      where: { id: quotationId },
-      data: decision === "ACCEPTED"
-        ? { status: "ACCEPTED", acceptedAt: now, lockedAt: now }
-        : { status: "REFUSED", refusedAt: now },
+    if (decision === "REFUSED") {
+      const upd = await this.prisma.quotation.update({
+        where: { id: quotationId },
+        data: { status: "REFUSED", refusedAt: now },
+      });
+      await this.trace(quotationId, "REFUSED", customerId);
+      return { id: upd.id, status: upd.status };
+    }
+
+    // Acceptation : le devis se verrouille ET le chantier naît (ch.5 §2).
+    // Les deux dans la même transaction — un devis accepté sans chantier
+    // laisserait le client sans travaux et l'artisan sans mission.
+    const depositDue = computeDeposit(q.amount, {
+      depositAmount: q.depositAmount,
+      depositPercent: q.depositPercent,
     });
-    return { id: upd.id, status: upd.status };
+    const warranty = warrantyFromQuotation(q);
+
+    const [upd, worksite] = await this.prisma.$transaction([
+      this.prisma.quotation.update({
+        where: { id: quotationId },
+        data: { status: "ACCEPTED", acceptedAt: now, lockedAt: now },
+      }),
+      this.prisma.worksite.create({
+        data: {
+          quotationId,
+          artisanId: q.artisanId,
+          customerId,
+          status: initialStatus(depositDue),
+          depositDue,
+          warrantyMonths: warranty.months,
+          warrantyTerms: warranty.terms,
+        },
+      }),
+    ]);
+
+    await this.trace(quotationId, "ACCEPTED", customerId);
+    await this.trace(quotationId, "CONVERTED", null, { worksiteId: worksite.id });
+    await this.prisma.worksiteEvent
+      .create({ data: { worksiteId: worksite.id, type: "CREATED", actorId: customerId } })
+      .catch(() => undefined);
+
+    return {
+      id: upd.id,
+      status: upd.status,
+      worksite: { id: worksite.id, status: worksite.status, depositDue: money(depositDue) },
+    };
+  }
+
+  /**
+   * Journal d'audit du devis (ch.4 §12).
+   *
+   * Best-effort : un journal indisponible ne doit pas faire échouer une
+   * acceptation déjà enregistrée — la trace est précieuse, la transaction
+   * métier l'est davantage.
+   */
+  private async trace(
+    quotationId: string,
+    type: string,
+    actorId: string | null,
+    payload?: Prisma.InputJsonValue,
+  ) {
+    await this.prisma.quotationEvent
+      .create({ data: { quotationId, type, actorId, payload } })
+      .catch(() => undefined);
   }
 
   async dashboard(userId: string) {

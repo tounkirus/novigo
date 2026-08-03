@@ -35,13 +35,48 @@ describe("CustomersService", () => {
       quotation: {
         // Devis envoyé et encore valide : l'acceptation exige les deux (ch.4 §7).
         findUnique: jest.fn().mockResolvedValue({
-          id: "q1", customerId: "me", status: "SENT",
+          id: "q1", customerId: "me", artisanId: "a1", status: "SENT", amount: 100_000,
+          depositAmount: null, depositPercent: 30, warrantyMonths: 12, warrantyTerms: "Pièces",
           expiresAt: new Date(Date.now() + 5 * 24 * 3600_000), lockedAt: null,
         }),
         update: jest.fn().mockResolvedValue({ id: "q1", status: "ACCEPTED" }),
       },
+      worksite: {
+        create: jest.fn().mockResolvedValue({ id: "w1", status: "AWAITING_DEPOSIT" }),
+      },
+      quotationEvent: { create: jest.fn().mockResolvedValue({}) },
+      worksiteEvent: { create: jest.fn().mockResolvedValue({}) },
+      // La transaction rend les résultats des opérations qu'on lui passe.
+      $transaction: jest.fn().mockImplementation((ops: any[]) => Promise.all(ops)),
     } as any;
-    expect(await new CustomersService(prisma).respondQuotation("me", "q1", "ACCEPTED")).toEqual({ id: "q1", status: "ACCEPTED" });
+
+    const res = await new CustomersService(prisma).respondQuotation("me", "q1", "ACCEPTED");
+    expect(res.status).toBe("ACCEPTED");
+    // Le chantier naît avec l'acceptation (ch.5 §2), en attente de l'acompte.
+    expect(res.worksite).toMatchObject({ id: "w1", status: "AWAITING_DEPOSIT" });
+    const created = prisma.worksite.create.mock.calls[0][0].data;
+    expect(created).toMatchObject({
+      quotationId: "q1", artisanId: "a1", customerId: "me",
+      status: "AWAITING_DEPOSIT", depositDue: 30_000, warrantyMonths: 12,
+    });
+  });
+
+  it("respondQuotation : refuse sans créer de chantier", async () => {
+    const prisma = {
+      quotation: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: "q1", customerId: "me", artisanId: "a1", status: "SENT", amount: 100_000,
+          expiresAt: new Date(Date.now() + 5 * 24 * 3600_000), lockedAt: null,
+        }),
+        update: jest.fn().mockResolvedValue({ id: "q1", status: "REFUSED" }),
+      },
+      quotationEvent: { create: jest.fn().mockResolvedValue({}) },
+      worksite: { create: jest.fn() },
+    } as any;
+
+    expect((await new CustomersService(prisma).respondQuotation("me", "q1", "REJECTED")).status)
+      .toBe("REFUSED");
+    expect(prisma.worksite.create).not.toHaveBeenCalled();
   });
 
   it("dashboard : agrège compteurs + wallet + commandes récentes", async () => {
