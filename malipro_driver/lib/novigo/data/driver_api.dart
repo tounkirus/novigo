@@ -91,6 +91,33 @@ String _initialsOf(String label) {
   return (words[0][0] + words[1][0]).toUpperCase();
 }
 
+/// Attente en cours au point de livraison, telle que le serveur la compte.
+class WaitingStatus {
+  /// Minutes écoulées depuis « Je suis arrivé ». 0 si l'appui n'a pas eu lieu.
+  final double waitedMinutes;
+
+  /// Vrai lorsque le livreur peut abandonner la course pour absence du client.
+  final bool mayCancelForAbsence;
+
+  /// Indemnité due s'il abandonne maintenant, en FCFA.
+  final int compensation;
+
+  const WaitingStatus({
+    required this.waitedMinutes,
+    required this.mayCancelForAbsence,
+    required this.compensation,
+  });
+
+  factory WaitingStatus.fromJson(Map j) => WaitingStatus(
+        waitedMinutes: ((j['waitedMinutes'] as num?) ?? 0).toDouble(),
+        mayCancelForAbsence: j['mayCancelForAbsence'] == true,
+        compensation: ((j['compensation'] as num?) ?? 0).toInt(),
+      );
+
+  /// Vrai dès que le compteur a démarré.
+  bool get started => waitedMinutes > 0 || mayCancelForAbsence;
+}
+
 /// Mappe un DTO /deliveries/available vers le modèle de demande de course.
 /// Tout vient du backend : commerce, client, articles, rémunération (= frais de
 /// livraison de la commande). Rien n'est synthétisé — un champ absent reste vide
@@ -190,6 +217,36 @@ class DriverApi {
   /// POST /deliveries/:id/start — démarre la livraison (émet order.tracking IN_TRANSIT).
   Future<void> start(String id) async {
     await api.post('/deliveries/$id/start');
+  }
+
+  /// POST /deliveries/:id/arrive — « Je suis arrivé ».
+  ///
+  /// C'est cet appel, et lui seul, qui démarre le compteur d'attente ouvrant
+  /// droit à indemnisation. L'appel est idempotent côté serveur : le répéter ne
+  /// remet pas le compteur à zéro.
+  Future<void> arrive(String id) async {
+    await api.post('/deliveries/$id/arrive');
+  }
+
+  /// GET /deliveries/:id/waiting — attente écoulée et droits ouverts.
+  ///
+  /// Le décompte est fait par le serveur : un compteur local repartirait de zéro
+  /// à chaque redémarrage de l'application, alors qu'il ouvre droit à de l'argent.
+  Future<WaitingStatus?> waiting(String id) async {
+    try {
+      final d = await api.get('/deliveries/$id/waiting');
+      return d is Map ? WaitingStatus.fromJson(d) : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// POST /deliveries/:id/absent — abandon pour client absent, après le délai.
+  /// Renvoie l'indemnité due, ou lève si le délai n'est pas écoulé.
+  Future<int> reportAbsent(String id) async {
+    final d = await api.post('/deliveries/$id/absent');
+    final amount = d is Map ? d['compensation'] : null;
+    return amount is num ? amount.toInt() : 0;
   }
 
   /// POST /deliveries/:id/complete — clôture (émet order.tracking DELIVERED).

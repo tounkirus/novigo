@@ -40,9 +40,38 @@ class _ActiveDeliveryScreenState extends State<ActiveDeliveryScreen>
     super.dispose();
   }
 
+  /// Libellé de l'action principale.
+  ///
+  /// À la dernière étape, remettre la commande suppose d'être sur place : le
+  /// livreur signale d'abord son arrivée — c'est cet appui, et lui seul, qui
+  /// démarre le compteur d'attente indemnisable (CDC v0.75 §3).
+  String get _actionLabel {
+    if (driver.step < 3) return _actions[driver.step];
+    return driver.hasArrived ? _actions[3] : 'Je suis arrivé';
+  }
+
+  Future<void> _reportAbsent() async {
+    final amount = await driver.reportAbsent();
+    if (!mounted) return;
+    if (amount == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Le délai d\'attente n\'est pas encore écoulé.'),
+      ));
+      return;
+    }
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => _SuccessScreen(amount: amount)),
+    );
+  }
+
   void _onAction() {
     if (driver.step < 3) {
       driver.advanceStep();
+      return;
+    }
+    // Sur place mais pas encore signalé : c'est l'arrivée qu'on enregistre.
+    if (!driver.hasArrived) {
+      driver.markArrived();
       return;
     }
     // Dernière étape : clôture + écran succès
@@ -167,13 +196,59 @@ class _ActiveDeliveryScreenState extends State<ActiveDeliveryScreen>
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                 ),
                 onPressed: _onAction,
-                child: Text(_actions[step],
+                child: Text(_actionLabel,
                     style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 16)),
               ),
             ),
+            // Attente en cours : le décompte vient du serveur, pas d'un minuteur
+            // local qui repartirait de zéro au moindre redémarrage.
+            if (step == 3 && driver.hasArrived) _waitingBlock(),
           ]),
         ),
       ),
+    );
+  }
+
+  /// Attente au point de livraison et droit d'abandon (§3).
+  Widget _waitingBlock() {
+    final w = driver.waiting;
+    final minutes = (w?.waitedMinutes ?? 0).floor();
+    final mayCancel = w?.mayCancelForAbsence == true;
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Column(children: [
+        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          const Icon(Icons.schedule_rounded, size: 16, color: NC.faint),
+          const SizedBox(width: 6),
+          Text(
+            mayCancel
+                ? 'Client absent depuis $minutes min'
+                : 'En attente du client · $minutes min',
+            style: TextStyle(
+                color: mayCancel ? NC.warning : NC.faint,
+                fontSize: 13,
+                fontWeight: FontWeight.w600),
+          ),
+        ]),
+        if (mayCancel) ...[
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: OutlinedButton(
+              style: OutlinedButton.styleFrom(
+                side: const BorderSide(color: NC.warning),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              ),
+              onPressed: _reportAbsent,
+              child: Text(
+                'Client absent · indemnité ${w?.compensation ?? 0} FCFA',
+                style: const TextStyle(color: NC.warning, fontWeight: FontWeight.w800),
+              ),
+            ),
+          ),
+        ],
+      ]),
     );
   }
 

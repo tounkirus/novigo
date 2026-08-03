@@ -83,6 +83,35 @@ public class FinanceSettlementService {
         log.info("[settlement] {} : livreur +{} XOF, solde={}", ref, fee, dw.getBalance());
     }
 
+    /**
+     * delivery.compensated (Nest) -> indemnise le livreur d'une course annulée
+     * pour absence du client (cahier des charges v0.75 §3).
+     *
+     * La course n'a pas été livrée : il n'y a donc aucun frais de livraison à
+     * verser, mais le déplacement et l'attente sont dus. On crédite sous une
+     * nature distincte (WAIT_COMPENSATION) pour que la comptabilité ne confonde
+     * jamais une indemnité avec le produit d'une livraison.
+     */
+    @Transactional
+    public void onDeliveryCompensated(Map<String, Object> d) {
+        UUID driverUserId = uuid(d.get("driverUserId"));
+        long amount = num(d.get("amount"));
+        String ref = str(d.get("reference"));
+
+        if (driverUserId == null || amount <= 0) {
+            log.warn("[settlement] compensation {} ignorée (driverUserId/amount manquant)", ref);
+            return;
+        }
+
+        User driver = users.ensure(driverUserId, str(d.get("driverPhone")), "Livreur");
+        Wallet dw = wallets.getOrCreate(driver, "DRIVER");
+        wallets.credit(dw, amount, "WAIT_COMPENSATION",
+                "Attente client absent — commande " + ref, null);
+
+        log.info("[settlement] {} : livreur indemnisé +{} XOF (attente {} min), solde={}",
+                ref, amount, num(d.get("waitedMinutes")), dw.getBalance());
+    }
+
     // ------------------------------------------------------------ helpers
     private static UUID uuid(Object o) {
         try { return o == null ? null : UUID.fromString(o.toString()); }

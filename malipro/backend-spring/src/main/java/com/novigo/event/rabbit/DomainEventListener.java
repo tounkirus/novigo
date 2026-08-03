@@ -34,6 +34,8 @@ public class DomainEventListener {
                     settlement.onOrderCreated((Map<String, Object>) m);
                 } else if ("delivery.completed".equals(routingKey)) {
                     settlement.onDeliveryCompleted((Map<String, Object>) m);
+                } else if ("delivery.compensated".equals(routingKey)) {
+                    settlement.onDeliveryCompensated((Map<String, Object>) m);
                 }
             }
         } catch (Exception e) {

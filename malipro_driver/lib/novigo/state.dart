@@ -98,6 +98,62 @@ class DriverState extends ChangeNotifier {
     }
   }
 
+  // --- Arrivée chez le client et attente (CDC v0.75 §3) -------------------
+
+  /// Attente en cours, telle que le SERVEUR la compte. `null` tant que le
+  /// livreur n'a pas signalé son arrivée.
+  WaitingStatus? waiting;
+
+  bool get hasArrived => waiting?.started == true;
+
+  /// « Je suis arrivé » : démarre le compteur d'attente ouvrant droit à
+  /// indemnisation. Hors ligne, on se contente d'un état local.
+  Future<void> markArrived() async {
+    final id = active?.id;
+    if (id == null) return;
+    if (NovigoEnv.live) {
+      try {
+        await driverApi.arrive(id);
+        await refreshWaiting();
+        return;
+      } catch (e) {
+        debugPrint('[Driver] arrivée non enregistrée: $e');
+      }
+    }
+    waiting = const WaitingStatus(
+        waitedMinutes: 0.1, mayCancelForAbsence: false, compensation: 0);
+    notifyListeners();
+  }
+
+  /// Relit l'attente auprès du serveur — c'est lui qui fait foi.
+  Future<void> refreshWaiting() async {
+    final id = active?.id;
+    if (id == null || !NovigoEnv.live) return;
+    final w = await driverApi.waiting(id);
+    if (w == null) return;
+    waiting = w;
+    notifyListeners();
+  }
+
+  /// Abandon pour client absent. Renvoie l'indemnité obtenue, ou `null` si le
+  /// serveur a refusé (délai non écoulé).
+  Future<int?> reportAbsent() async {
+    final id = active?.id;
+    if (id == null) return null;
+    if (!NovigoEnv.live) return waiting?.compensation ?? 0;
+    try {
+      final amount = await driverApi.reportAbsent(id);
+      active = null;
+      step = 0;
+      waiting = null;
+      notifyListeners();
+      return amount;
+    } catch (e) {
+      debugPrint('[Driver] abandon refusé: $e');
+      return null;
+    }
+  }
+
   // --- Intégration LIVE (best-effort ; repli silencieux sur le mock) ---
 
   bool _liveStarted = false;

@@ -215,6 +215,24 @@ export class DeliveriesService {
       data: { status: "CANCELLED", cancellationReason: "Client absent au point de livraison" },
     });
     this.realtime.emitTracking(d.orderId, { orderId: d.orderId, status: "CANCELLED" });
+
+    // Bus finance (Spring) : la compensation d'attente est un dû, pas un
+    // affichage. Elle emprunte le même chemin que les frais de livraison, avec
+    // sa propre nature pour rester distinguable en comptabilité.
+    const order = await this.prisma.order.findUnique({ where: { id: d.orderId } });
+    if (order && assessment.compensation > 0) {
+      await this.bus.publish("delivery.compensated", {
+        orderId: d.orderId,
+        reference: order.reference,
+        driverUserId: userId,
+        amount: assessment.compensation,
+        reason: "CUSTOMER_ABSENT",
+        waitedMinutes: Math.round(assessment.waitedMinutes),
+      });
+      await this.notifications.create(order.customerId, "ORDER_CANCELLED",
+        "Commande annulée", "Le livreur vous a attendu sans réponse. La course a été annulée.",
+        { orderId: d.orderId });
+    }
     return { ...mapDelivery(updated), compensation: assessment.compensation };
   }
 
