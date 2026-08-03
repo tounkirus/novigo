@@ -632,6 +632,7 @@ model Quotation {
 
   lines     QuotationLine[]
   events    QuotationEvent[]
+  worksite  Worksite?
   createdAt DateTime @default(now())
 
   @@index([artisanId, status])
@@ -654,6 +655,77 @@ model QuotationLine {
   position    Int               @default(0)
 
   @@index([quotationId])
+}
+
+/// États d'un chantier (Module Artisans, ch.5 §3).
+enum WorksiteStatus {
+  /// Devis accepté, en attente du règlement de l'acompte.
+  AWAITING_DEPOSIT
+  /// Toutes les conditions sont remplies, l'artisan peut démarrer.
+  READY
+  /// Travaux lancés.
+  IN_PROGRESS
+  /// L'artisan a déclaré la fin ; le client doit réceptionner.
+  WORK_DONE
+  /// Réception acceptée, ou acceptée automatiquement.
+  CLOSED
+  /// Le client conteste : l'administration NOVIGO reprend la main.
+  DISPUTED
+}
+
+/// Chantier (Module Artisans, ch.5).
+///
+/// Créé automatiquement à l'acceptation d'un devis. Le chantier porte la
+/// garantie annoncée au devis, qui sera reprise sur la facture (§8).
+model Worksite {
+  id          String  @id @default(uuid())
+  quotation   Quotation @relation(fields: [quotationId], references: [id])
+  /// Un devis accepté ne donne qu'un seul chantier.
+  quotationId String    @unique
+  artisanId   String
+  customerId  String
+
+  status WorksiteStatus @default(READY)
+
+  /// Acompte exigé et déjà réglé, en FCFA. Les travaux ne démarrent pas tant
+  /// que le second n'atteint pas le premier (§2).
+  depositDue  Int @default(0)
+  depositPaid Int @default(0)
+
+  /// Garantie reprise du devis.
+  warrantyMonths Int?
+  warrantyTerms  String?
+
+  startedAt  DateTime?
+  finishedAt DateTime?
+  /// Échéance de réception automatique, posée à la fin des travaux (§6).
+  autoAcceptAt DateTime?
+  closedAt   DateTime?
+  disputedAt DateTime?
+  disputeReason String?
+
+  events    WorksiteEvent[]
+  createdAt DateTime @default(now())
+
+  @@index([artisanId, status])
+  @@index([customerId, status])
+  @@index([status, autoAcceptAt])
+}
+
+/// Journal d'audit du chantier (ch.5 §10). Écrit seulement, jamais modifié.
+model WorksiteEvent {
+  id         String   @id @default(uuid())
+  worksite   Worksite @relation(fields: [worksiteId], references: [id], onDelete: Cascade)
+  worksiteId String
+  /// CREATED, DEPOSIT_PAID, STARTED, FINISHED, ACCEPTED, AUTO_ACCEPTED,
+  /// DISPUTE_OPENED, DISPUTE_CLOSED
+  type       String
+  /// Auteur. `null` pour une transition automatique.
+  actorId    String?
+  payload    Json?
+  createdAt  DateTime @default(now())
+
+  @@index([worksiteId, createdAt])
 }
 
 /// Journal d'audit du devis (§12). Écrit seulement, jamais modifié.
